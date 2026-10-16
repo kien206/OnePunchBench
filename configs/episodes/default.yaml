@@ -1,0 +1,13 @@
+# Sampler: onepunch.episodes.EpisodeSampler.from_cfg(cfg.episodes)  (extra keys ignored)
+# Step pool: onepunch.episodes.build_step_pool_cfg(cfg.episodes)  (null step_families -> all models)
+# Reduced from the formulation's 32/16 (12 fams x 4) to fit the 24-model step pool (115 GB RAM):
+# ~5 inner families x 3 = 15, ~3 outer families x 3 = 9.
+n_in: 15
+n_out: 9
+n_fam_cap: 3
+rho: 0.25                  # fraction of tokenizer-disjoint episodes
+n_episodes: 8
+step_families: 8           # per-step model pool: 8 families x 3 models = 24 models
+step_models_per_family: 3  # NOTE: episodes are drawn inside this pool, so sizes are capped by it
+redraw_pool_every: 10      # steps
+standardize: true          # sigma_k = std over training models (false -> sigma = 1)

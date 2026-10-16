@@ -1,0 +1,574 @@
+\documentclass{article}
+
+
+\usepackage[utf8]{inputenc} % allow utf-8 input
+\usepackage[T1]{fontenc}    % use 8-bit T1 fonts
+\usepackage{hyperref}       % hyperlinks
+\usepackage{url}            % simple URL typesetting
+\usepackage{booktabs}       % professional-quality tables
+\usepackage{amsfonts}       % blackboard math symbols
+\usepackage{nicefrac}       % compact symbols for 1/2, etc.
+\usepackage{microtype}      % microtypography
+\usepackage{xcolor}         % colors
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\bibliographystyle{plainnat}
+% Note. For the workshop paper template, both \title{} and \workshoptitle{} are required, with the former indicating the paper title shown in the title and the latter indicating the workshop title displayed in the footnote. 
+\title{Formatting Instructions For NeurIPS 2026}
+
+
+
+\author{%
+  David S.~Hippocampus\thanks{Use footnote for providing further information
+    about author (webpage, alternative address)---\emph{not} for acknowledging
+    funding agencies.} \\
+  Department of Computer Science\\
+  Cranberry-Lemon University\\
+  Pittsburgh, PA 15213 \\
+  \texttt{hippo@cs.cranberry-lemon.edu} \\
+  % examples of more authors
+  % \And
+  % Coauthor \\
+  % Affiliation \\
+  % Address \\
+  % \texttt{email} \\
+  % \AND
+  % Coauthor \\
+  % Affiliation \\
+  % Address \\
+  % \texttt{email} \\
+  % \And
+  % Coauthor \\
+  % Affiliation \\
+  % Address \\
+  % \texttt{email} \\
+  % \And
+  % Coauthor \\
+  % Affiliation \\
+  % Address \\
+  % \texttt{email} \\
+}
+
+
+\begin{document}
+
+
+\maketitle
+
+
+\begin{abstract}
+  The abstract paragraph should be indented \nicefrac{1}{2}~inch (3~picas) on both the left- and right-hand margins. Use 10~point type, with a vertical spacing (leading) of 11~points. The word \textbf{Abstract} must be centered, bold, and in point size 12. Two line spaces precede the abstract. The abstract must be limited to one paragraph.
+\end{abstract}
+
+\section{Formulation}
+\subsection{Setup and Notation}
+The task is to predict a model's score on any benchmark, including models and benchmarks unseen in training. The model contributes one pass over P; the benchmark contributes a description read by a frozen text encoder.
+
+Notations:
+\begin{itemize}
+    \item \textbf{Model}: Model population $M \sim \mathcal{D}$. Each carries metadata: family $F(M)$, the root base model of its lineage; release date $t(M)$; and parent model$(s)$. Fine-tunes, merges and quantized copies inherit the family of their root. 
+    \item \textbf{Benchmarks}: Benchmark suites $\mathcal{B} = \{b_1,\ldots, b_K\}$ with score vector $s(M) = \{s_1(M),\ldots,s_K(M)\} \in [0,1]^K$ where $s_K(M)$ is the accuracy under a \textbf{fixed} reference protocol (I think we could used verifiable tasks).
+    \item Prompt/Probe: a byte string $p$, with $|p| \leq L_{in}$ in bytes. $p$ is expected to be identical for every model and fixed in advance.
+    \item Feature map $f(M, p) \in R^d$ maps model response to $p$. Default, for open-weight models: how surprised the model is by each word of the prompt. Send p, take the log-probability of each token, sum them per word, and divide by the word's length in bytes. This needs no generation, is deterministic. Black-box variant, for API models: generate a response to p and embed it with a fixed sentence encoder.
+    % \item A task encoder $g_\mathcal{B_i}$
+\end{itemize}
+
+\paragraph{Readout}Stack the training models' features into $\Phi_{train}(p)$ of size $N_{tr} × d$, and their scores into $S_{tr}$, of size $N_{tr} × K$. Both are centered on training means. The readout is linear regression, which has a closed form:
+
+\begin{align}
+    W(p) = \big(\Phi_{\text{tr}}^{\top}\Phi_{\text{tr}} + \lambda I\big)^{+}\Phi_{\text{tr}}^{\top} S_{\text{tr}}
+\end{align}
+
+LR is chosen because the search evaluates J thousands of times, and its closed form makes each evaluation fast and exactly repeatable. A flexible readout such as an MLP would add training noise to J and overfit a few hundred models; it can still be tried once on the final prompt as an ablation.
+
+\subsection{Objective}
+The prompt is judged by the readout's error on validation models:
+\begin{equation*}
+    J(p) = \frac{1}{N_{\text{val}}K}\,\big\lVert \Phi_{\text{val}}(p)\,W(p) - S_{\text{val}} \big\rVert_F^2, \qquad p^\star = \arg\min_{|p| \le L} J(p)
+\end{equation*}
+
+\paragraph{Prompt Optimizers}Training is a search over prompts. Each step scores the current candidates with J and asks an optimizer for better ones; at the end, the readout is refitted once. We can choose readable optimizer like GEPA, ORPO, APE~\citep{agrawal2026gepa, yang2024orpo, zhou2023ape}, readable or not like EvalPrompt~\citep{guo2024evoprompt} or non-readable like GCG~\citep{zou2023gcg}.
+
+Every optimizer runs the same loop: propose candidate prompts, score each with J exactly, keep the best. They differ only in how they propose candidates. Evolutionary search needs only J's values; gradient-guided search also uses J's gradient to choose which edits to try.
+
+\subsection{
+Inference
+}
+A new model costs one call and one matrix product; nothing is refitted. Training leaves four stored things: the prompt $p*$, the readout $W*$, the feature means and the score means $\hat{s}$.
+\begin{enumerate}
+    \item Send $p*$ to the new model: one forward pass, or one generation in the black-box variant.
+    \item Compute $f(M_{new}, p*)$ and center it with the stored feature means.
+    \item Predict all K scores at once, clipped to [0, 1]:
+    \begin{align*}
+        \hat{s}(M_{\text{new}}) = \bar{s} + W^{\star\top} f\big(M_{\text{new}}, p^\star\big)
+    \end{align*}
+\end{enumerate}
+
+
+\subsection{Evaluation}
+Test sets
+\begin{itemize}
+    \item Held-old model families: Generalization of method
+    \item Models newly released 
+    \item Quantized version of models: It's not fingerprinting
+\end{itemize}
+
+Metrics
+\begin{itemize}
+    \item Spearman score per benchmark
+    \item MSE
+    \item Within-model Spearman
+\end{itemize}
+
+Baselines
+\begin{itemize}
+    \item Regression parameter count: Show that the prompt does more than showing parameter count
+    \item Random prompt
+    \item Fingerprinting methods used for benchmark predictions, e.g LLM DNA
+    \item A generic passage of length L, similar to~\cite{oyama-etal-2025-mapping}. (very similar paper, they use log-likelihood vector from a set of texts to map to LLMs)
+\end{itemize}
+
+\section{Bilevel Formulation}
+\label{sec:bilevel}
+
+For open-weight models, $J(p)$ can be minimized with gradients rather than
+black-box search. Two views make the construction intuitive.
+
+First, the prompt is a short test of $d$ items. We cut $p$ into $d$ chunks. A
+model's ``answer'' to chunk $j$ is how well it predicts that chunk, in
+log-probability per byte, and the readout is a learned rule that turns the $d$
+answers into $K$ benchmark scores. The chunks are read in order, so an item can
+depend on earlier ones: it can test, for example, whether the model predicts
+text that repeats or follows from something stated before.
+
+Second, the objective is defined on bytes and refers to no tokenizer: every
+model reads $p$ with its own tokenizer. Tokenizers enter only the search,
+because gradients need a vocabulary.
+
+We view the readout and the prompt as the two levels of one problem. The inner
+level fits the readout on one set of model families; the outer level judges the
+prompt by how well that readout predicts a disjoint set. In terms of the first
+view, the grading rule is learned on some families and checked on others, and
+the test is rewritten until the check passes. Because the readout has a closed
+form, the inner solution is an explicit, differentiable function of the
+features, and through them of the prompt.
+
+% ---------------------------------------------------------------------
+\paragraph{Features shared by all tokenizers.}
+Models tokenize $p$ differently, so the features must not privilege any one
+tokenizer. We split $p$ into $d$ contiguous byte chunks $c_1,\dots,c_d$, where
+$c_j$ covers bytes $\lfloor (j-1)|p|/d \rfloor$ to $\lfloor j|p|/d \rfloor - 1$,
+counting from 0, and apply the same rule to every model:
+\begin{equation}
+  \label{eq:chunk}
+  f_j(M,p) = \frac{1}{|c_j|}\sum_{u} \omega_{uj}\,
+  \log P_M(u \mid u_{<}),
+\end{equation}
+where $u$ ranges over $\mathrm{tok}_M(p)$, $M$'s own tokens of $p$; $u_{<}$
+denotes everything $M$ reads before $u$; and $\omega_{uj}$ is the fraction of
+$u$'s bytes that fall in $c_j$. A token that crosses a chunk boundary thus splits its log-probability
+across chunks in proportion to its bytes. Three conventions make the rule well
+defined for every model:
+\begin{itemize}
+  \item \emph{Context.} Every model reads its BOS token if it has one, then
+    $\mathrm{tok}_M(p_0)$, then $\mathrm{tok}_M(p)$, with no chat template.
+    The prefix $p_0$ is a fixed short string (we use a newline), tokenized
+    separately from $p$ so that no token straddles the two. It belongs to no
+    chunk; it gives the first token of $p$ a context in every model, including
+    models without a BOS token.
+  \item \emph{Byte spans.} $\omega_{uj}$ needs the bytes each token covers. We
+    obtain them by decoding $\mathrm{tok}_M(p)$ to bytes incrementally: the
+    span of a token is the bytes its decoding appends. This works for
+    byte-level BPE and SentencePiece tokenizers alike; bytes a tokenizer adds
+    on its own, such as a dummy prefix space, fall in no chunk.
+  \item \emph{Chunk length.} Every chunk has at least $L_{\text{chunk}}$ bytes
+    (e.g.\ 32), so $|p| \ge d\,L_{\text{chunk}}$. Since $L_{\text{chunk}}$
+    exceeds the length of almost all tokens, a token rarely touches more than
+    two chunks, and the smearing of log-probability across boundaries, which
+    differs between tokenizers and could reveal the tokenizer, stays small.
+\end{itemize}
+When the tokenizer adds no bytes of its own, $\sum_j |c_j|\, f_j(M,p) = \log
+P_M(\mathrm{tok}_M(p) \mid p_0)$, the log-probability of $M$'s own tokenization
+of $p$. These features replace the per-word features as the default for
+open-weight models: every model, including those that provide gradients, is
+treated identically.
+
+The feature dimension $d$ stays fixed as the prompt changes, so the readout and
+its ridge strength remain comparable across candidates. The meaning of a feature
+does not: a swap that changes the prompt's length moves the chunk boundaries, so
+feature $j$ covers different bytes for different candidates. This is harmless.
+The readout is refit for every candidate, so only the number of features must
+stay fixed.
+
+% ---------------------------------------------------------------------
+\paragraph{Episodes.}
+Each optimization step samples episodes rather than reusing one fixed split. An
+episode is a pair of model sets, $\mathcal{M}^{\text{in}}$ and
+$\mathcal{M}^{\text{out}}$, that share no family, with fixed sizes
+$N_{\text{in}}$ and $N_{\text{out}}$. To draw one, we split the training
+families at random into an inner and an outer group, then fill each set by
+repeatedly picking a family of its group uniformly at random and a model of that
+family uniformly at random, without replacement and with at most
+$N_{\text{fam}}$ models per family. Sampling by family keeps families with
+thousands of fine-tunes from dominating both the readout and the loss.
+
+$\Phi_{\text{in}}(p) = [f(M,p)^\top]_{M \in \mathcal{M}^{\text{in}}}$ stacks
+the feature vectors of the inner models as rows, and $S_{\text{in}}$ their
+scores; $\Phi_{\text{out}}(p)$ and $S_{\text{out}}$ do the same for
+$\mathcal{M}^{\text{out}}$. They take the roles of $\Phi_{\text{tr}},
+S_{\text{tr}}$ and $\Phi_{\text{val}}, S_{\text{val}}$. Features and scores are
+centered with the means of $\mathcal{M}^{\text{in}}$, and each benchmark's
+scores are divided by $\sigma_k$, its standard deviation over all training
+models, so that every benchmark counts equally in the loss. Setting $\sigma_k =
+1$ instead weights benchmarks by their variance.
+
+In a fraction $\rho$ of episodes, the two sets also share no tokenizer: a
+held-out tokenizer is drawn, $\mathcal{M}^{\text{out}}$ is filled only with its
+models and $\mathcal{M}^{\text{in}}$ only with models of other tokenizers. The
+held-out tokenizer is never the active surrogate tokenizer (below), so these
+episodes measure transfer to models that give no gradient at that step.
+
+Three sets of families are never sampled. \emph{Monitor} families are used only
+for early stopping. \emph{Calibration} families are used only for error bars at
+inference, so they play no role in training or stopping. \emph{Test} families
+are never touched before the final evaluation. When the pool allows, the
+calibration families include a tokenizer that no training family uses.
+
+% ---------------------------------------------------------------------
+\paragraph{Bilevel problem.}
+The inner level is the ridge readout fitted on episode $e$, $\hat{W}_e =
+\hat{W}(p;\mathcal{M}^{\text{in}}_e)$:
+\begin{align}
+  \hat{W}_e
+  &= \arg\min_{W}\, \lVert \Phi_{\text{in}} W - S_{\text{in}} \rVert_F^2
+    + \lambda\lVert W\rVert_F^2 \nonumber \\
+  &= \big(\Phi_{\text{in}}^\top\Phi_{\text{in}} + \lambda I_d\big)^{-1}
+     \Phi_{\text{in}}^\top S_{\text{in}} \nonumber \\
+  &= \Phi_{\text{in}}^\top\big(\Phi_{\text{in}}\Phi_{\text{in}}^\top
+    + \lambda I_{N_{\text{in}}}\big)^{-1} S_{\text{in}},
+  \label{eq:inner}
+\end{align}
+where $\Phi_{\text{in}} = \Phi_{\text{in}}(p)$. The two closed forms are equal;
+we use the one whose matrix to invert is smaller, $d \times d$ or $N_{\text{in}}
+\times N_{\text{in}}$. The data term grows with the number of models, so we set
+$\lambda = \lambda_0 N_{\text{in}}$; the regularization then means the same when
+the final readout is refit on all training models.
+
+The outer level scores that readout on the outer models of the same episode,
+and averages over episodes:
+\begin{align}
+  \ell_e(p) &= \tfrac{1}{N_{\text{out}}K}\,
+     \big\lVert \Phi_{\text{out}}(p)\,\hat{W}_e - S_{\text{out}}\big\rVert_F^2, \\
+  \mathcal{L}(p) &= \mathbb{E}_{e}\big[\ell_e(p)\big], \qquad
+  p^\star = \arg\min_{p \in \mathcal{P}}\, \mathcal{L}(p),
+\end{align}
+where the expectation is over the episode distribution above, and the feasible
+set $\mathcal{P}$ contains the valid UTF-8 strings of $d\,L_{\text{chunk}}$ to
+$L_{in}$ bytes that have at most $n_{\max}$ tokens under every model's
+tokenizer. The token cap $n_{\max}$ is the smallest context window among the
+models we evaluate, less a margin; it is needed because a prompt within the byte
+budget can still be very long in tokens for a tokenizer that covers its
+characters poorly.
+
+$J(p)$ is the special case with a single fixed episode (train, val). Averaging
+over episodes turns it into a leave-families-out cross-validation error, so the
+search cannot overfit one split; the tokenizer-disjoint episodes extend it to a
+leave-tokenizer-out error. All episodes still come from one finite pool of
+families, and the search evaluates the loss thousands of times, so the prompt
+can overfit the pool as a whole. The monitor families guard against this.
+
+% ---------------------------------------------------------------------
+\paragraph{Why not a single joint loss.}
+Minimizing one loss over $(p, W)$ on the same models gives the prompt no
+incentive to generalize: it rewards prompts whose features fit the training
+scores, not prompts whose readout transfers to new families. When $d \ge
+N_{\text{in}} - 1$, a joint loss is also uninformative: after centering, ridge
+with small $\lambda$ fits the training scores almost exactly for nearly any
+prompt, so the loss cannot distinguish prompts. The outer loss on unseen
+families is what makes the objective meaningful.
+
+% ---------------------------------------------------------------------
+\paragraph{Rotating surrogate groups.}
+Gradients require a token representation, and a token swap is defined only
+within one vocabulary. We therefore use $R$ \emph{surrogate groups}
+$\mathcal{G}_1,\dots,\mathcal{G}_R$: each is a set of open-weight training
+models sharing one tokenizer $\mathrm{tok}_r$ with vocabulary $\mathcal{X}_r$.
+Monitor, calibration and test models belong to no group. The prompt is stored as
+bytes; $\mathrm{tok}_r$ maps it to token IDs and $\mathrm{detok}_r$ maps token
+IDs back to bytes. Surrogate tokenizers must round-trip bytes exactly,
+$\mathrm{detok}_r(\mathrm{tok}_r(p)) = p$, which byte-level tokenizers do, so
+re-tokenizing the prompt at every step loses nothing. No model generates text at
+any point: each model only reads $p$, in one forward pass that scores its
+tokens.
+
+At step $t$, one group $r$ is active: $p$ is tokenized as $x =
+\mathrm{tok}_r(p) \in \mathcal{X}_r^{n_r}$, and gradients flow through the models
+of $\mathcal{G}_r$ only. Episodes are drawn so that this gradient is never
+empty: the families of $\mathcal{G}_r$ are assigned to the inner group in half of
+the step's standard episodes and to the outer group in the other half, and to
+the inner group in tokenizer-disjoint episodes; in each case at least one model
+of $\mathcal{G}_r$ is drawn. Rotating $r$ across steps exposes the search to
+several vocabularies. What keeps a token that is informative under one tokenizer
+only from being accepted is the exact check below, which scores every model with
+its own tokenizer.
+
+% ---------------------------------------------------------------------
+\paragraph{Surrogate hypergradient.}
+Relax the active tokens $x$ to their one-hot matrix $X \in
+\{0,1\}^{n_r \times |\mathcal{X}_r|}$ and treat it as continuous. Only the rows
+of $\Phi$ that belong to models in $\mathcal{G}_r$ depend on $X$. The prompt
+affects the step loss $\bar\ell = \frac{1}{E}\sum_e \ell_e$ in two ways:
+directly, through the features of surrogate models in $\mathcal{M}^{\text{out}}$,
+and through the readout, via the features of surrogate models in
+$\mathcal{M}^{\text{in}}$, which determine both $\hat{W}_e$ and the centering.
+Let
+\begin{equation}
+  g_M = \frac{\partial \bar\ell}{\partial f(M,p)} \in \mathbb{R}^d
+\end{equation}
+be the total derivative with respect to model $M$'s features, collecting both
+paths over all episodes that contain $M$. Holding fixed the features of models
+outside $\mathcal{G}_r$, and the chunk weights $\omega_{uj}$ and lengths $|c_j|$,
+which change discretely with the tokens' byte lengths, gives
+\begin{equation}
+  \label{eq:surrogate-grad}
+  \tilde\nabla_X \bar\ell
+  = \sum_{M \in \mathcal{G}_r}
+    \Big(\frac{\partial f(M,p)}{\partial X}\Big)^{\!\top} g_M .
+\end{equation}
+The vectors $g_M$ need only the features, computed without gradients, and
+differentiation through the ridge solve of Eq.~\eqref{eq:inner}, which automatic
+differentiation does exactly. General bilevel methods approximate the readout
+path by unrolling inner optimization steps or through the implicit function
+theorem~\citep{franceschi2018bilevel}; the closed-form readout removes this
+approximation. Each surrogate model then adds one backward pass of the scalar
+$\langle g_M, f(M,X)\rangle$, so only one model is in memory at a time.
+
+For intuition, ignore the centering and let $\gamma = 2/(N_{\text{out}}K)$,
+$\Delta_{\text{out}} = \Phi_{\text{out}}\hat{W}_e - S_{\text{out}}$ and
+$\Delta_{\text{in}} = S_{\text{in}} - \Phi_{\text{in}}\hat{W}_e$ be the outer
+and inner residuals, and $Z = (\Phi_{\text{in}}^\top\Phi_{\text{in}} + \lambda
+I_d)^{-1}\Phi_{\text{out}}^\top\Delta_{\text{out}}$. Then
+\begin{align}
+  \frac{\partial \ell_e}{\partial \Phi_{\text{out}}}
+    &= \gamma\,\Delta_{\text{out}}\hat{W}_e^\top, \\
+  \frac{\partial \ell_e}{\partial \Phi_{\text{in}}}
+    &= \gamma\,\big(\Delta_{\text{in}} Z^\top
+       - \Phi_{\text{in}} Z \hat{W}_e^\top\big).
+\end{align}
+$Z$ maps the outer residual back into feature space through the ridge: inner
+features move in the directions that would have let the readout correct the
+outer errors, and both paths vanish when the outer residual is zero. These
+closed forms also serve as a test of the implementation.
+
+$\tilde\nabla$ is the gradient of a surrogate, not of $\mathcal{L}$: besides the
+one-hot relaxation, it ignores how a swap changes the features of non-surrogate
+models and the chunk weights. It is used only to rank candidate token swaps, as
+in GCG~\citep{zou2023gcg}, and the exact loss, computed on every model with its
+own tokenizer, decides which swap is kept.
+
+% ---------------------------------------------------------------------
+\paragraph{Search.}
+Each step (Algorithm~\ref{alg:bilevel}) proposes $C$ single-token swaps. A swap
+picks a random position $i$ and a random token from $\mathrm{Top}_i$, the
+$k_{\text{top}}$ allowed tokens with the most negative entries of
+$\tilde\nabla_{i,\cdot}$. The allowed set $\mathcal{A}_r \subset \mathcal{X}_r$
+excludes special and control tokens (BOS, EOS, chat-template tokens), which other
+tokenizers would read as plain text, and tokens whose bytes are not complete
+UTF-8 characters, since most tokenizers take Unicode strings. Restricting
+$\mathcal{A}_r$ further to printable ASCII is optional; it makes prompts easier
+to read and keeps them short in every tokenizer.
+
+Each swapped sequence $x'_b$ is mapped back to bytes, $\tilde{p}_b =
+\mathrm{detok}_r(x'_b)$, and dropped if $\mathrm{tok}_r(\tilde{p}_b) \ne x'_b$
+or $\tilde{p}_b \notin \mathcal{P}$. The first check matters because BPE often
+re-merges tokens around a swap; the gradient would then have scored a different
+sequence from the one being checked. The second also catches swaps that leave
+invalid UTF-8, for instance by replacing one half of a character split across
+two tokens. The current prompt and the remaining candidates are scored by
+$\bar\ell$ on the step's episodes, each model reading them with its own
+tokenizer, and the best is kept.
+
+Every $T_{\text{mon}}$ steps we compute the monitor loss: the readout is fitted
+on all training families and its error measured on the monitor families. The
+search returns the prompt with the lowest monitor loss, not the last one, and
+stops after $\tau$ monitor checks without improvement. We initialize $p$ with the
+generic passage used as a baseline, so any gain over that baseline is due to the
+search.
+
+\begin{algorithm*}[t]
+\caption{Episodic surrogate-hypergradient token search}
+\label{alg:bilevel}
+\begin{algorithmic}[1]
+\Require feature map $f$ (Eq.~\ref{eq:chunk}) with $d$ chunks; training and
+  monitor families; surrogate groups $\mathcal{G}_1,\dots,\mathcal{G}_R$ with
+  allowed tokens $\mathcal{A}_1,\dots,\mathcal{A}_R$; initial prompt $p$; ridge
+  strength $\lambda_0$; episodes per step $E$; tokenizer-disjoint fraction
+  $\rho$; shortlist size $k_{\text{top}}$; candidates per step $C$; steps $T$;
+  monitor interval $T_{\text{mon}}$; patience $\tau$
+\Ensure prompt $p^\star$, readout $W^\star$
+\Function{EpisodeLoss}{$q$} \Comment{step-$t$ episodes}
+  \State compute $f(M,q)$ for all $M \in \mathcal{M}_t$, each with its own tokenizer
+  \For{$e = 1,\dots,E$}
+    \State center $\Phi_{\text{in},e}, \Phi_{\text{out},e}, S_{\text{in},e},
+      S_{\text{out},e}$ with the means of $\mathcal{M}^{\text{in}}_e$
+    \State $\hat{W}_e \gets$ Eq.~\eqref{eq:inner},
+      $\lambda = \lambda_0 N_{\text{in}}$
+    \State $\ell_e \gets \frac{1}{N_{\text{out}}K}
+      \lVert\Phi_{\text{out},e}\hat{W}_e - S_{\text{out},e}\rVert_F^2$
+  \EndFor
+  \State \Return $\frac{1}{E}\sum_e \ell_e$
+\EndFunction
+\State $p_{\text{best}} \gets p$; \; $\ell_{\text{best}} \gets \infty$; \;
+  $n_{\text{stall}} \gets 0$
+\For{$t = 1,\dots,T$}
+  \State $r \gets (t \bmod R) + 1$ \Comment{active group}
+  \State sample episodes $(\mathcal{M}^{\text{in}}_e,
+    \mathcal{M}^{\text{out}}_e)_{e=1}^{E}$, with $\mathcal{G}_r$ in each
+  \State $\mathcal{M}_t \gets \bigcup_e (\mathcal{M}^{\text{in}}_e \cup
+    \mathcal{M}^{\text{out}}_e)$
+  \State $\bar\ell \gets \Call{EpisodeLoss}{p}$ \Comment{no grad.\ in models}
+  \State $g_M \gets \partial\bar\ell/\partial f(M,p)$ for
+    $M \in \mathcal{G}_r \cap \mathcal{M}_t$
+  \State $x \gets \mathrm{tok}_r(p)$; \quad $X \gets \mathrm{onehot}(x)$
+  \State $\tilde\nabla \gets \sum_{M \in \mathcal{G}_r \cap \mathcal{M}_t} \partial\langle g_M, f(M,X)\rangle
+    /\partial X$ \Comment{one model at a time}
+  \State $\mathrm{Top}_i \gets$ top-$k_{\text{top}}$ tokens of $\mathcal{A}_r$
+    by $-\tilde\nabla_{i,\cdot}$, for all $i$
+  \For{$b = 1,\dots,C$} \Comment{propose}
+    \State $i \gets$ random position; \; $v \gets$ random token in
+      $\mathrm{Top}_i$
+    \State $x'_b \gets x$ with $x_i$ replaced by $v$; \; $\tilde{p}_b \gets \mathrm{detok}_r(x'_b)$
+  \EndFor
+  \State drop every $\tilde{p}_b$ with $\mathrm{tok}_r(\tilde{p}_b) \ne x'_b$
+    or $\tilde{p}_b \notin \mathcal{P}$
+  \State $p \gets \arg\min_{q} \Call{EpisodeLoss}{q}$ over $p$ and the
+    remaining $\tilde{p}_b$ \Comment{exact check}
+  \If{$t \bmod T_{\text{mon}} = 0$} \Comment{early stopping}
+    \State $\ell_{\text{mon}} \gets$ monitor loss of $p$
+    \State \textbf{if} $\ell_{\text{mon}} < \ell_{\text{best}}$ \textbf{then}
+      $p_{\text{best}} \gets p$; $\ell_{\text{best}} \gets \ell_{\text{mon}}$;
+      $n_{\text{stall}} \gets 0$ \textbf{else}
+      $n_{\text{stall}} \gets n_{\text{stall}} + 1$
+    \State \textbf{if} $n_{\text{stall}} = \tau$ \textbf{then break}
+  \EndIf
+\EndFor
+\State $p^\star \gets p_{\text{best}}$
+\State $\Phi_{\text{tr}} \gets [f(M,p^\star)^\top]_{M \in \text{train}}$; \; re-select $\lambda_0$ by family-grouped cross-validation
+\State $W^\star \gets$ Eq.~\eqref{eq:inner} on $(\Phi_{\text{tr}},
+  S_{\text{tr}})$, $\lambda = \lambda_0 N_{\text{tr}}$
+\State \Return $p^\star, W^\star$
+\end{algorithmic}
+\end{algorithm*}
+
+% ---------------------------------------------------------------------
+\paragraph{Practical notes.}
+Features are computed once per candidate for every model in $\mathcal{M}_t$;
+episodes only select rows. One step therefore costs $|\mathcal{G}_r \cap
+\mathcal{M}_t|$ forward-backward passes for the gradient and $(C+1)\,
+|\mathcal{M}_t|$ forward passes for the exact check. The check dominates: with
+$C = 512$, as in GCG, and a few hundred models, it is of order $10^5$ forward
+passes per step. We keep $C$ smaller and screen first: all candidates are scored
+on the step's episodes restricted to one model per family, and only the best few
+go through the full check.
+
+A swap leaves the bytes before it unchanged, but a model's tokens just before
+the edit can still change, because BPE may merge them with the new bytes. Each
+model therefore reuses its cached computation only up to the longest common
+prefix of its old and new token IDs. Since the exact check decides, the gradient
+pass may use a subset of the surrogate models, mixed precision or gradient
+checkpointing. The ridge solve and the $g_M$ are computed in float64: they are
+small, and with small $\lambda$ the backward pass through the inverse is
+ill-conditioned in lower precision.
+
+Candidates are scored on the same episodes that produced the gradient, which
+keeps the comparison fair, while fresh episodes at every step prevent overfitting
+one split. $\lambda_0$ is chosen once by family-grouped cross-validation on the
+initial prompt and re-selected the same way for $p^\star$. Because the readout
+has a closed form, $\log\lambda_0$ could also be learned in the outer loop at no
+extra cost.
+
+% ---------------------------------------------------------------------
+\paragraph{Connection to meta-learning.}
+The formulation mirrors meta-learning with closed-form inner
+solvers~\citep{bertinetto2019r2d2, lee2019metaopt}: episodes play the role of
+tasks, $\mathcal{M}^{\text{in}}$ and $\mathcal{M}^{\text{out}}$ of support and
+query sets, $W$ of task-specific parameters and $p$ of meta-parameters. The
+difference is what is learned. Meta-learning trains the feature extractor; here
+the feature extractors are a frozen population of heterogeneous models, and the
+meta-learned object is their shared input. The closest mechanics are in dataset
+distillation with kernel ridge regression~\citep{nguyen2021kip}, which optimizes
+a small set of training inputs through a closed-form solver. Here a single input
+is optimized, and the solver reads the responses of many frozen models to it.
+
+% ---------------------------------------------------------------------
+\paragraph{Inference.}
+After training, the stored objects are the prompt $p^\star$ and prefix $p_0$,
+the number of chunks $d$ (the chunk boundaries follow from $|p^\star|$), the
+readout $W^\star$ fitted on all training families, the training means $\bar{f}$
+of the features and $\bar{s}$ of the scores, and the benchmark scales
+$\sigma_1,\dots,\sigma_K$. Surrogate groups, gradients and episodes are not
+needed. A new open-weight model $M_{\text{new}}$, with any tokenizer, is handled
+in three steps:
+\begin{enumerate}
+  \item Run $M_{\text{new}}$ once on $p_0$ and $p^\star$, read as in training,
+    without generation, and record the log-probability of each token of
+    $p^\star$.
+  \item Apply the chunk rule of Eq.~\eqref{eq:chunk}, with the same conventions
+    as in training, to get $f(M_{\text{new}}, p^\star) \in \mathbb{R}^d$.
+  \item Center the features and apply the readout, which predicts all $K$ scores
+    at once; each score is clipped to $[0,1]$:
+\end{enumerate}
+\begin{equation}
+  \hat{s}(M_{\text{new}}) = \bar{s}
+    + D_\sigma W^{\star\top}\big(f(M_{\text{new}}, p^\star) - \bar{f}\big),
+\end{equation}
+where $D_\sigma = \mathrm{diag}(\sigma_1,\dots,\sigma_K)$ undoes the
+standardization. For error bars, we use the spread of each benchmark's
+prediction error on the calibration families, which played no role in training
+or stopping. For a model whose tokenizer was not seen in training, we use the
+calibration families with such a tokenizer if there are any; otherwise we report
+the errors of $p^\star$ on tokenizer-disjoint episodes, which are optimistic
+because $p^\star$ was optimized on them.
+
+% ---------------------------------------------------------------------
+\paragraph{Additional evaluation.}
+Beyond the test sets and baselines above, we report test results separately for
+three groups of tokenizers: those of a surrogate group, those seen in training
+but in no surrogate group, and those never seen in training. We add a scalar
+baseline, the bits per byte of each model on a generic text, which is known to
+correlate almost linearly with average benchmark
+scores~\citep{huang2024compression}. Because an optimizer that can write
+benchmark items into $p$ could predict scores by detecting contamination, we
+report the $n$-gram overlap between $p^\star$ and the benchmark test sets. We
+also ablate each component:
+\begin{itemize}
+  \item joint single-level loss vs.\ the bilevel objective;
+  \item one fixed split vs.\ episodes;
+  \item episodes without vs.\ with tokenizer-disjoint episodes;
+  \item sampling models uniformly vs.\ by family;
+  \item one surrogate group vs.\ rotating groups;
+  \item per-token features of one tokenizer vs.\ shared byte chunks, and the
+    number of chunks $d$, including $d = 1$, which reduces the features to the
+    prompt's bits per byte;
+  \item $W$ held fixed in the backward pass vs.\ the surrogate hypergradient;
+  \item random token swaps vs.\ the gradient shortlist;
+  \item gradient-free evolutionary search with equal compute vs.\ hypergradient
+    search;
+  \item the best of $N$ random prompts, chosen with the same number of loss
+    evaluations as the search, which measures how much of the gain comes from
+    selection alone.
+\end{itemize}
+
+
+\clearpage
+
+\bibliography{reference}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% \newpage
+% \input{checklist.tex}
+
+
+\end{document}

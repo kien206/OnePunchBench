@@ -1,0 +1,21 @@
+Q: What is 17 * 23? A: 17 * 23 = 391.
+def fib(n):
+    a, b = 0, 1
+    for _ in range(n):
+        a, b = b, a + b
+    return a
+assert fib(10) == 55
+Instruction: Rewrite the sentence in the passive voice, using exactly ten words.
+Answer: The final report was carefully reviewed by the senior committee.
+The chemical symbol for gold is Au; water boils at 100 degrees Celsius at sea level.
+If all bloops are razzies and all razzies are lazzies, then all bloops are lazzies.
+Le chat dort sur le canapé pendant que la pluie tombe.
+Der schnelle braune Fuchs springt über den faulen Hund.
+Hôm nay trời đẹp, chúng tôi đi dạo trong công viên.
+今天天气很好，我们去公园散步。
+SELECT name, COUNT(*) FROM orders GROUP BY name HAVING COUNT(*) > 3;
+Let x satisfy 2x + 5 = 19. Then 2x = 14, so x = 7.
+Photosynthesis converts carbon dioxide and water into glucose and oxygen using light.
+{"name": "Ada", "age": 36, "skills": ["math", "engines"]}
+The integral of 1/x dx is ln|x| + C, and the derivative of sin x is cos x.
+Step 1: list the premises. Step 2: check each inference. Step 3: state the conclusion.

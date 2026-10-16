@@ -1,0 +1,11 @@
+# POOL = which models a run loads (training, monitor and evaluation models together).
+# What each model is used for is decided by its split + `roles` in config.yaml, not here.
+#   model_list: file(s) of HF ids, relative to the repo root
+#   where:      extra conditions on registry columns (Registry.filter arguments); all must hold
+description: >-
+  Readout / evaluation pool: every usable Open LLM Leaderboard v2 model up to 14B (forward pass only,
+  weights streamed). No model_list: the conditions below select from the whole registry.
+where:
+  on_hub: true
+  max_params_b: 14.0
+  split: [train, monitor, calib, testA, testB, testC]   # i.e. everything except "excluded"

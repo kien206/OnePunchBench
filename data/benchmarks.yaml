@@ -1,0 +1,43 @@
+# Open LLM Leaderboard v2 benchmarks (protocol_version "oll_v2").
+# lm_eval_task: group name of lm-eval's `leaderboard` suite (lm-eval >= 0.4.5).
+# metrics: lm-eval metric keys (without the ",none" suffix); several -> unweighted mean.
+#   ifeval: leaderboard IFEval = mean(prompt_level_strict_acc, inst_level_strict_acc).
+# n_items: size of the test set (sampling-error denominator). ifeval uses the 541 prompts.
+# archive_raw_column: raw (un-normalized, in [0,1]) column of open-llm-leaderboard/contents.
+benchmarks:
+  ifeval:
+    lm_eval_task: leaderboard_ifeval
+    metrics: [prompt_level_strict_acc, inst_level_strict_acc]
+    n_shots: 0
+    n_items: 541
+    archive_raw_column: "IFEval Raw"
+  bbh:
+    lm_eval_task: leaderboard_bbh
+    metrics: [acc_norm]
+    n_shots: 3
+    n_items: 5511
+    archive_raw_column: "BBH Raw"
+  math_lvl5:
+    lm_eval_task: leaderboard_math_hard
+    metrics: [exact_match]
+    n_shots: 4
+    n_items: 1324
+    archive_raw_column: "MATH Lvl 5 Raw"
+  gpqa:
+    lm_eval_task: leaderboard_gpqa
+    metrics: [acc_norm]
+    n_shots: 0
+    n_items: 1192   # diamond 198 + extended 546 + main 448 (size-weighted group mean)
+    archive_raw_column: "GPQA Raw"
+  musr:
+    lm_eval_task: leaderboard_musr
+    metrics: [acc_norm]
+    n_shots: 0
+    n_items: 756    # murder 250 + object placements 256 + team allocation 250
+    archive_raw_column: "MUSR Raw"
+  mmlu_pro:
+    lm_eval_task: leaderboard_mmlu_pro
+    metrics: [acc]
+    n_shots: 5
+    n_items: 12032
+    archive_raw_column: "MMLU-PRO Raw"

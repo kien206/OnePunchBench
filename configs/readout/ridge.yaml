@@ -1,0 +1,9 @@
+# Instantiate with onepunch.readout.build_readout(cfg.readout); the `cv` block is
+# dropped there because it is not a RidgeReadout constructor argument.
+_target_: onepunch.readout.ridge.RidgeReadout
+lambda0: 0.1          # lambda = lambda0 * N (re-selected by family-grouped CV)
+scale_with_n: true
+form: auto            # auto | primal | dual
+cv:
+  lambda0_grid: [1.0e-4, 1.0e-3, 1.0e-2, 1.0e-1, 1.0, 10.0]
+  max_folds: 10       # leave-one-family-out up to this many families, else k family-folds

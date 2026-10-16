@@ -1,0 +1,7 @@
+project: onepunchbench
+entity: null
+group: null        # set per experiment, e.g. t1_baselines; seeds/ablations share a group
+name: null
+tags: []
+mode: online       # online | offline | disabled
+dir: ${paths.runs}

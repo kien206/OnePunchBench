@@ -1,0 +1,8 @@
+# POOL = which models a run loads (training, monitor and evaluation models together).
+# What each model is used for is decided by its split + `roles` in config.yaml, not here.
+#   model_list: file(s) of HF ids, relative to the repo root
+#   where:      extra conditions on registry columns (Registry.filter arguments); all must hold
+description: 12 tiny (<= 0.5B) ungated models from the Open LLM Leaderboard v2, for tests and smoke runs
+model_list: data/models/smoke.yaml
+where:
+  on_hub: true

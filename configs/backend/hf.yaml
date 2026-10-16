@@ -1,0 +1,8 @@
+_target_: onepunch.features.hf_backend.HFBackend
+device: cuda
+batch_size: 8
+attn_implementation: sdpa
+# E0 (smoke pool, 2026-10-16): bf16 features shift by ~3% of the between-model spread when the batch
+# composition changes (fails the 1% criterion); fp32 is batch-invariant to ~1e-5. Default to fp32.
+dtype: float32     # null: use the dtype in the registry; "float32"/"bfloat16" overrides it
+pool_ram_gb: 60    # pinned host RAM for the model pool (0: reload from disk every time)

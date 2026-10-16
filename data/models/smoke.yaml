@@ -1,0 +1,15 @@
+# Smoke pool: 12 tiny (<= 0.5B) ungated models with OLL v2 archive scores, 7 families.
+# Used by tests and CI-style runs (pool=smoke). Splits are assigned by scripts/assign_splits.py.
+models:
+  - model_id: HuggingFaceTB/SmolLM2-135M            # train / smollm2-135m
+  - model_id: HuggingFaceTB/SmolLM2-135M-Instruct   # train / smollm2-135m
+  - model_id: HuggingFaceTB/SmolLM2-360M            # train / smollm2-360m
+  - model_id: HuggingFaceTB/SmolLM2-360M-Instruct   # train / smollm2-360m
+  - model_id: Qwen/Qwen2.5-0.5B                     # train / qwen2.5-0.5b
+  - model_id: Qwen/Qwen2.5-0.5B-Instruct            # train / qwen2.5-0.5b
+  - model_id: Qwen/Qwen2-0.5B                       # train / qwen2-0.5b
+  - model_id: Qwen/Qwen2-0.5B-Instruct              # train / qwen2-0.5b
+  - model_id: BEE-spoke-data/smol_llama-220M-GQA    # train / smol_llama-220m
+  - model_id: HuggingFaceTB/SmolLM-135M             # testA / smollm
+  - model_id: EleutherAI/pythia-160m                # testA / pythia
+  - model_id: EleutherAI/gpt-neo-125m               # testA / gpt-neo

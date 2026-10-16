@@ -1,0 +1,73 @@
+# Root config for train.py, predict.py and experiments/*.py. See configs/README.md.
+#   python train.py pool=tier_s search=random_swap search.loop.steps=500 logger.mode=offline
+defaults:
+  - backend: hf
+  - features: chunk16
+  - readout: ridge
+  - episodes: default
+  - search: none
+  - pool: smoke
+  - logger: wandb
+  - _self_
+
+seed: 0
+device: cuda
+
+# ---------------------------------------------------------------------------------------------
+# WHAT is predicted: benchmarks and where their ground-truth scores come from.
+# Stage 1 = Open LLM Leaderboard v2 only (scripts/pull_open_llm_leaderboard.py fills the score table).
+scores:
+  benchmarks: [ifeval, bbh, math_lvl5, gpqa, musr, mmlu_pro]   # keys of data/benchmarks.yaml
+  sources: [archive]        # archive = OLL v2 leaderboard. Add "ours" (lm-eval runs) only after Gate 0:
+                            # [ours, archive] = prefer our score, fall back to the archive
+  protocol_version: oll_v2  # never mix scores from different evaluation protocols
+
+# ---------------------------------------------------------------------------------------------
+# WHO does what. Every model has one split, assigned per family by scripts/assign_splits.py
+# (rules in data/splits.yaml). The pool (configs/pool/*.yaml) says which models are loaded;
+# `roles` says which splits of the pool are used for what. Models without all benchmark scores
+# are dropped.
+#   train     archive families: search episodes + final readout
+#   monitor   archive families: early stopping / choosing the best prompt only
+#   calib     archive families: error bars only (+ an unseen tokenizer)
+#   testA     held-out archive families of the same era
+#   testB     families released after the leaderboard closed (2025-03-13); needs stage-2 scores,
+#             so it is empty in stage 1
+#   testC     held-out architectures (MoE, hybrid, recurrent)
+#   excluded  unusable (mixed-root merges, unsupported architectures, families < 3 models)
+roles:
+  train: [train]
+  monitor: [monitor]                    # [] -> pick the best prompt by the training (episode) loss
+  eval: [testA, testB, testC, calib]    # scored once at the end of train.py
+
+# ---------------------------------------------------------------------------------------------
+# train.py: prompt search (configs/search) + final readout (configs/readout) -> <run>/artifact/
+train:
+  init_prompt: generic_passage  # starting prompt: data/prompts/<name>.txt
+  cv_lambda0: true              # choose readout.lambda0 by family-grouped CV (initial and final prompt)
+  n_boot: 1000                  # family-bootstrap resamples for evaluation confidence intervals
+
+# predict.py: score models with a trained artifact
+predict:
+  artifact: null       # REQUIRED: <run dir>/artifact
+  model_ids: null      # explicit HF ids (any model, in the registry or not); null -> the pool
+  splits: null         # with model_ids=null: only these splits of the pool (null = all)
+
+paths:
+  root: ${oc.env:ONEPUNCH_ROOT,.}
+  data: ${paths.root}/data
+  registry: ${paths.data}/registry/registry.parquet
+  scores: ${paths.data}/scores/scores.parquet
+  benchmarks: ${paths.data}/benchmarks.yaml
+  prompts: ${paths.data}/prompts
+  cache: ${paths.data}/cache
+  runs: ${paths.root}/runs
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: ${paths.runs}/${now:%Y-%m-%d}/${now:%H-%M-%S}_${hydra.job.name}
+  sweep:
+    dir: ${paths.runs}/multirun/${now:%Y-%m-%d}/${now:%H-%M-%S}_${hydra.job.name}
+    subdir: ${hydra.job.num}

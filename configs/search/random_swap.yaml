@@ -1,0 +1,10 @@
+# build_optimizer(cfg.search); SearchLoop(optimizer, objective, ..., **cfg.search.loop)
+optimizer:
+  _target_: onepunch.search.random_swap.RandomSwap
+  tokenizer: Qwen/Qwen2.5-0.5B   # surrogate tokenizer, loaded lazily
+  n_candidates: 32
+  allowed: printable_ascii       # printable_ascii | all_text
+loop: {steps: 200, monitor_every: 10, patience: 5, log_prompt_every: 10}
+constraints:
+  max_bytes: 2048
+  max_tokens: 1024

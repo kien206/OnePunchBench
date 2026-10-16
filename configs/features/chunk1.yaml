@@ -1,0 +1,4 @@
+d: 1
+l_chunk: 32        # min bytes per chunk: |p| >= d * l_chunk
+prefix: "\n"       # p0, tokenized separately from p
+persist: true      # write log-probs to data/cache

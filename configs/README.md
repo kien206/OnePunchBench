@@ -52,7 +52,7 @@ Select it with `python train.py readout=mlp readout.lr=3e-4`. Each file holds th
 | Group | Files | Built by | Contents |
 | --- | --- | --- | --- |
 | `backend/` | `hf.yaml` | `FeatureExtractor.from_cfg` | Model loading. `dtype` defaults to **float32**: E0 showed bf16 features depend on batch composition. Also `batch_size`, `attn_implementation`, and `pool_ram_gb` (pinned host RAM for the model cache) |
-| `features/` | `chunk1`, `chunk16`, `chunk64` | `FeatureExtractor` | `d`, `l_chunk`, the prefix `p0`, and `persist` (disk cache of log-probs) |
+| `features/` | `chunk1`, `chunk16`, `chunk64`, `log_params` | `onepunch.features.build_feature_source` | **The feature map** `f(M, p)`: `_target_` picks the class (see "Feature maps" below), and the other keys are its settings. For chunk*: `d`, `l_chunk`, prefix `p0`, `persist` |
 | `readout/` | `ridge.yaml` | `onepunch.readout.build_readout` | Readout class plus its hyperparameters. `cv` is used only for λ0 selection |
 | `episodes/` | `default.yaml` | `EpisodeSampler.from_cfg`, `build_step_pool_cfg` | Inner/outer sizes, per-family cap, ρ (tokenizer-disjoint fraction), episodes per step, step model pool, σ-standardization |
 | `search/` | `none`, `random_swap`, `best_of_n` | `onepunch.search.build_optimizer` | `optimizer` (null = no search; train only the readout on the initial prompt), `loop`, `constraints` |
@@ -96,6 +96,28 @@ python scripts/describe_run.py pool=tier_s --models   # ... and every model id
 - **`predict`**: `artifact` (required), plus `model_ids` (any HF ids) or `splits` of the pool.
 - **`paths`**: data locations. Override the root with `ONEPUNCH_ROOT`.
 - Experiment scripts add their own options under `exp` (see each script's `EXP_DEFAULTS`). Set them with a leading `+`, e.g. `+exp.splits=[train,monitor]`.
+
+## Feature maps
+
+`features._target_` selects the class that turns (model, prompt) into the feature vector the readout sees. `train.py`, `predict.py` and the search all go through `onepunch.features.build_feature_source(cfg)`. The artifact stores the whole `features` group, so `predict.py` rebuilds the same feature map.
+
+| File | `_target_` | Features |
+| --- | --- | --- |
+| `chunk16.yaml` (default), `chunk1`, `chunk64` | `onepunch.features.extractor.FeatureExtractor` | Byte-chunked log-probs of the prompt (formulation, Eq. chunk) |
+| `log_params.yaml` | `onepunch.features.params.ParamFeatures` | log(parameter count), no forward pass. Ignores the prompt, so use `search=none` |
+
+```bash
+./run_train.sh features=chunk1                    # d = 1: bits per byte (or set FEATURES= in run_train.sh)
+./run_train.sh features=log_params search=none    # size-only baseline, same splits and metrics
+```
+
+To add a feature map (e.g. hidden states):
+1. Write a class in `src/onepunch/features/<name>.py` with an attribute `d`, a classmethod `from_cfg(cfg, persist=None, share_with=None)`, and `features(models, prompts) -> np.ndarray [N_models, N_prompts, d]`.
+   - `share_with` is the other extractor in the same run. Reuse its model pool, or host RAM doubles.
+2. Add `configs/features/<name>.yaml` with `_target_` and the class's settings.
+3. Run with `features=<name>`.
+
+The one hard requirement is that **feature j must mean the same thing for every model**, because a single readout W is shared by all models.
 
 ## Adding a component
 

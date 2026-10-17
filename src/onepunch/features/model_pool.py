@@ -41,8 +41,13 @@ class ModelPool:
     once the host copies exceed ``capacity_gb``.
     """
 
-    def __init__(self, capacity_gb: float = 0.0, device: str = "cuda", backend_cls: Any = None, **backend_kwargs: Any):
+    def __init__(self, capacity_gb: float = 0.0, device: str = "cuda", backend_cls: Any = None,
+                 pin_memory: bool = False, **backend_kwargs: Any):
+        """pin_memory: keep host copies in pinned memory (faster H2D copies). Off by default: torch's
+        caching pinned allocator does not return freed blocks to the OS, so evicting models of varying
+        sizes grows host RAM well past `capacity_gb` (a 115 GB host was OOM-killed this way)."""
         self.backend_cls = backend_cls or HFBackend
+        self.pin_memory = pin_memory
         self.capacity = int(capacity_gb * 2**30)
         self.device = device
         self.backend_kwargs = backend_kwargs
@@ -89,10 +94,11 @@ class ModelPool:
                 else:
                     host = []
                     for t in tensors:
-                        try:
-                            t.data = t.data.pin_memory()
-                        except RuntimeError:  # cannot pin: keep pageable memory
-                            pass
+                        if self.pin_memory:
+                            try:
+                                t.data = t.data.pin_memory()
+                            except RuntimeError:  # cannot pin: keep pageable memory
+                                pass
                         host.append(t.data)
                     e = _Entry(model, tok, tensors, host, nbytes, cached=True)
                     self._to_device(e)

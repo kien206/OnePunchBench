@@ -16,7 +16,7 @@ from onepunch.types import LogprobBackend, ModelSpec, TokenLogprobs
 
 log = logging.getLogger(__name__)
 
-_NOT_BACKEND_KEYS = {"_target_", "_partial_", "pool_ram_gb", "dtype"}
+_NOT_BACKEND_KEYS = {"_target_", "_partial_", "pool_ram_gb", "pin_memory", "dtype"}
 
 
 class FeatureExtractor:
@@ -48,15 +48,25 @@ class FeatureExtractor:
         self.prefix, self.l_chunk, self.persist, self.dtype = prefix, l_chunk, persist, dtype
 
     @classmethod
-    def from_cfg(cls, cfg: Any, persist: bool | None = None) -> "FeatureExtractor":
-        """Build from the Hydra config: `cfg.backend`, `cfg.features`, `cfg.paths.cache`."""
+    def from_cfg(cls, cfg: Any, persist: bool | None = None,
+                 share_with: "FeatureExtractor | None" = None) -> "FeatureExtractor":
+        """Build from the Hydra config: `cfg.backend`, `cfg.features`, `cfg.paths.cache`.
+
+        `share_with`: reuse that extractor's model pool and cache. Use it whenever a process needs
+        several extractors (e.g. persist=True for named prompts, persist=False for search candidates):
+        every pool holds up to `backend.pool_ram_gb` of host RAM, so separate pools multiply it.
+        """
         from hydra.utils import get_class
 
         b, f = cfg.backend, cfg.features
-        kwargs = {k: v for k, v in dict(b).items() if k not in _NOT_BACKEND_KEYS and k != "device"}
-        backend_cls = get_class(b._target_) if "_target_" in b else None
-        pool = ModelPool(b.get("pool_ram_gb", 0) or 0, b.get("device", "cuda"), backend_cls=backend_cls, **kwargs)
-        cache = LogprobCache(cfg.paths.cache, persist=bool(f.get("persist", True)))
+        if share_with is not None:
+            pool, cache = share_with.pool, share_with.cache
+        else:
+            kwargs = {k: v for k, v in dict(b).items() if k not in _NOT_BACKEND_KEYS and k != "device"}
+            backend_cls = get_class(b._target_) if "_target_" in b else None
+            pool = ModelPool(b.get("pool_ram_gb", 0) or 0, b.get("device", "cuda"), backend_cls=backend_cls,
+                             pin_memory=bool(b.get("pin_memory", False)), **kwargs)
+            cache = LogprobCache(cfg.paths.cache, persist=bool(f.get("persist", True)))
         prefix = str(f.get("prefix", "\n")).encode()
         return cls(f.d, cache, pool=pool, prefix=prefix, l_chunk=int(f.get("l_chunk", 0)),
                    persist=persist, dtype=b.get("dtype"))

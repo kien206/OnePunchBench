@@ -1,3 +1,5 @@
+# Chunked log-probs of the prompt (formulation, Eq. chunk). See configs/README.md "Feature maps".
+_target_: onepunch.features.extractor.FeatureExtractor
 d: 64
 l_chunk: 32        # min bytes per chunk: |p| >= d * l_chunk
 prefix: "\n"       # p0, tokenized separately from p

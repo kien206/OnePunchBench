@@ -29,12 +29,12 @@ from onepunch.episodes import EpisodeSampler, build_step_pool_cfg, select_lambda
 from onepunch.eval.bootstrap import family_bootstrap
 from onepunch.eval.lofo import FittedPredictor, fit_predictor
 from onepunch.eval.metrics import mean_spearman, summarize
-from onepunch.features import FeatureExtractor
+from onepunch.features import build_feature_source
 from onepunch.features.hf_backend import load_tokenizer
 from onepunch.readout import build_readout, lambda0_grid
 from onepunch.search import (EpisodicObjective, MonitorObjective, SearchLoop, build_constraints,
                              build_optimizer)
-from onepunch.types import ModelSpec
+from onepunch.types import FeatureSource, ModelSpec
 from onepunch.utils.experiment import Population, load_population, load_prompt, start_run
 
 log = logging.getLogger(__name__)
@@ -60,31 +60,47 @@ def load_artifact(path: str | Path) -> tuple[bytes, FittedPredictor]:
 def _feature_cfg_from_meta(cfg: DictConfig, meta: dict[str, Any]) -> DictConfig:
     """Copy of cfg whose features/backend settings match the ones the artifact was trained with."""
     cfg = OmegaConf.create(OmegaConf.to_container(cfg, resolve=True))
-    cfg.features.d = int(meta["d"])
-    cfg.features.prefix = meta["prefix"]
-    cfg.features.l_chunk = int(meta.get("l_chunk", cfg.features.l_chunk))
+    if "features_cfg" in meta:   # the whole `features` group the artifact was trained with
+        cfg.features = OmegaConf.create(meta["features_cfg"])
+    else:                        # artifacts from before features._target_ existed
+        cfg.features.d = int(meta["d"])
+        cfg.features.prefix = meta["prefix"]
+        cfg.features.l_chunk = int(meta.get("l_chunk", cfg.features.l_chunk))
     cfg.backend.dtype = meta.get("dtype", cfg.backend.dtype)
     return cfg
 
 
 # --------------------------------------------------------------------------- evaluation
 
-def evaluate(predictor: FittedPredictor, extractor: FeatureExtractor, pop: Population, prompt: bytes,
+def evaluate(predictor: FittedPredictor, extractor: FeatureSource, pop: Population, prompt: bytes,
              n_boot: int, rng: np.random.Generator) -> tuple[dict[str, float], np.ndarray]:
-    """Metrics of the predictor on `pop` (which has ground truth); returns (metrics, predictions)."""
-    Phi = extractor.features(pop.specs, [prompt])[:, 0]
-    pred = predictor.predict(Phi)
+    """Metrics of the predictor on `pop` (which has ground truth); returns (metrics, predictions).
+
+    Models the backend cannot load (e.g. custom code without trust_remote_code) are skipped and
+    counted in `n_failed`; metrics cover the remaining models."""
+    rows, ok = [], []
+    for i, spec in enumerate(pop.specs):
+        try:
+            rows.append(extractor.features([spec], [prompt])[0, 0])
+            ok.append(i)
+        except Exception as e:
+            log.error("skipping %s: %s: %s", spec.model_id, type(e).__name__, str(e).splitlines()[0][:200])
+    n_failed = len(pop) - len(ok)
+    pop = pop.subset(np.isin(np.arange(len(pop)), ok))
+    if len(pop) == 0:
+        raise RuntimeError("no model of this split could be scored")
+    pred = predictor.predict(np.stack(rows))
     metrics = summarize(pred, pop.S, pop.families, pop.benchmarks)
     if len(set(pop.families)) > 1:
         _, lo, hi = family_bootstrap(mean_spearman, pred, pop.S, pop.families, n_boot=n_boot, rng=rng)
         metrics.update({"spearman/mean_ci_lo": lo, "spearman/mean_ci_hi": hi})
-    metrics["n_models"], metrics["n_families"] = len(pop), len(set(pop.families))
+    metrics["n_models"], metrics["n_families"], metrics["n_failed"] = len(pop), len(set(pop.families)), n_failed
     return metrics, pred
 
 
 # --------------------------------------------------------------------------- training
 
-def _cv_lambda0(readout, extractor: FeatureExtractor, pop: Population, prompt: bytes, grid) -> None:
+def _cv_lambda0(readout, extractor: FeatureSource, pop: Population, prompt: bytes, grid) -> None:
     if not hasattr(readout, "lambda0"):
         return
     Phi = extractor.features(pop.specs, [prompt])[:, 0]
@@ -103,8 +119,9 @@ def train(cfg: DictConfig) -> Path:
     log.info("train: %d models / %d families; monitor: %d models", len(tr), len(set(tr.families)), len(mon))
 
     init = load_prompt(cfg, t.init_prompt)
-    persistent = FeatureExtractor.from_cfg(cfg)               # named prompts -> disk cache
-    source = FeatureExtractor.from_cfg(cfg, persist=False)    # search candidates -> memory only
+    persistent = build_feature_source(cfg)                # named prompts -> disk cache
+    source = build_feature_source(cfg, persist=False,     # search candidates -> memory only;
+                                  share_with=persistent)  # one model pool = one RAM budget
     readout, grid = build_readout(cfg.readout), lambda0_grid(cfg.readout)
     if t.cv_lambda0:
         _cv_lambda0(readout, persistent, tr, init, grid)
@@ -123,7 +140,7 @@ def train(cfg: DictConfig) -> Path:
         if monitor is None:
             log.warning("no monitor models: the best prompt is chosen by step loss")
         reps = {tok: s for tok, s in zip(pop.tokenizers, pop.specs)}   # one model per tokenizer
-        constraints = build_constraints(cfg.search, int(cfg.features.d) * int(cfg.features.l_chunk),
+        constraints = build_constraints(cfg.search, int(cfg.features.d) * int(cfg.features.get("l_chunk", 0)),
                                         [load_tokenizer(s) for s in reps.values()])
         loop = SearchLoop(optimizer, objective, monitor, constraints, logger=run.logger,
                           **OmegaConf.to_container(cfg.search.loop, resolve=True))
@@ -133,7 +150,8 @@ def train(cfg: DictConfig) -> Path:
             _cv_lambda0(readout, persistent, tr, best, grid)
 
     Phi = persistent.features(tr.specs, [best])[:, 0]
-    meta = {"d": int(cfg.features.d), "prefix": str(cfg.features.prefix), "l_chunk": int(cfg.features.l_chunk),
+    meta = {"d": int(persistent.d), "features_cfg": OmegaConf.to_container(cfg.features, resolve=True),
+            "prefix": str(cfg.features.get("prefix", "")), "l_chunk": int(cfg.features.get("l_chunk", 0)),
             "dtype": cfg.backend.dtype, "benchmarks": tr.benchmarks, "readout": cfg.readout.get("_target_"),
             "lambda0": getattr(readout, "lambda0", None), "score_sources": list(cfg.scores.sources)}
     predictor = fit_predictor(Phi, tr.S, readout, bool(cfg.episodes.standardize), meta=meta)
@@ -184,7 +202,7 @@ def predict(cfg: DictConfig) -> pd.DataFrame:
     run = start_run(cfg, "predict")
     prompt, predictor = load_artifact(cfg.predict.artifact)
     meta = predictor.meta
-    extractor = FeatureExtractor.from_cfg(_feature_cfg_from_meta(cfg, meta))
+    extractor = build_feature_source(_feature_cfg_from_meta(cfg, meta))
     specs = _resolve_specs(cfg)
     specs = [dataclasses.replace(s, dtype=meta.get("dtype") or s.dtype) for s in specs]
 

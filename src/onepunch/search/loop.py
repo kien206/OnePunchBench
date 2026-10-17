@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import math
 import time
 from dataclasses import dataclass, field
@@ -15,6 +16,8 @@ from onepunch.utils.wandb_logger import Logger
 
 ActiveSchedule = Callable[[int], "tuple[np.ndarray | None, str | None]"]
 
+
+log = logging.getLogger(__name__)
 
 @dataclass
 class SearchResult:
@@ -97,6 +100,9 @@ class SearchLoop:
                     stall += 1
                     stop = stall >= self.patience
             history.append(rec)
+            log.info("step %d/%d loss=%.4f (before %.4f) valid=%d/%d%s %.0fs", t + 1, self.steps, cur_loss,
+                     rec.get("loss_before", math.nan), len(cands), rec.get("n_proposed", len(cands)),
+                     f" monitor={rec['monitor_loss']:.4f}" if "monitor_loss" in rec else "", rec["wall_time"])
             self.logger.log({"search/loss": cur_loss, "search/n_valid": len(cands),
                              "search/wall_time": rec["wall_time"],
                              **({"search/monitor_loss": rec["monitor_loss"]} if "monitor_loss" in rec else {})},

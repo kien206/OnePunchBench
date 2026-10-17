@@ -1,0 +1,6 @@
+# Prompt-independent baseline: log(parameter count) from the registry, no forward pass.
+# Use with search=none (the prompt does not affect these features).
+_target_: onepunch.features.params.ParamFeatures
+d: 1
+columns: [log_params]
+l_chunk: 0

@@ -15,7 +15,10 @@ $PY -m pytest -q            # -m "not slow" skips model/tokenizer downloads
 ## Train and predict
 
 ```bash
+./run_train.sh                                           # train / validate on monitor / test, prints RMSE (settings at the top of the file)
+nohup ./run_train.sh > run_train.out 2>&1 &              # same, survives logout
 $PY scripts/describe_run.py pool=tier_s                  # what a run would use (models per role, cached weights)
+$PY scripts/report_metrics.py runs/<date>/<time>_train   # RMSE / Spearman table of a finished run
 $PY train.py                                             # smoke pool, fixed prompt, readout only
 $PY train.py search=random_swap search.loop.steps=200    # prompt search (Algorithm 1 loop)
 $PY train.py pool=tier_s search=random_swap logger.mode=offline

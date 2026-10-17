@@ -19,6 +19,12 @@ family_aliases:
   "huggingfacetb/smollm-*": smollm
   "stabilityai/stablelm-2-*": stablelm2
   "internlm/*": internlm
+  # one pretraining lineage each (the per-size / per-version roots fragmented them, and a Phi-3
+  # 4-bit fine-tune had landed in train while other Phi-3 models were monitor)
+  "microsoft/phi-3*": phi3
+  "unsloth/phi-3*": phi3
+  "ibm-granite/granite-3.0-2b*": granite3
+  "ibm-granite/granite-3.1-2b*": granite3
 
 # held-out architectures: whole family -> testC if the majority of its members match
 testC:
@@ -31,7 +37,8 @@ excluded_archs: ["T5*", "MT5*", "UMT5*", "SwitchTransformers*", "*SequenceClassi
                  "*RewardModel*", "*CausalRM", "LLMForSequenceRegression", "Qwen2Model", "GemmaModel"]
 
 # (patterns match the family AFTER aliasing)
-monitor: ["deepseek-ai/deepseek-r1-distill-qwen-*", "microsoft/phi-3*", "mistralai/mistral-nemo-base-2407"]
+# monitor: 3 families / 3 tokenizers in tier_s (data/models/monitor_round1.yaml, 2026-10-17)
+monitor: ["deepseek-ai/deepseek-r1-distill-qwen-*", "phi3", "granite3", "mistralai/mistral-nemo-base-2407"]
 calib: ["microsoft/phi-2", "stablelm2", "google/gemma-2b"]   # stablelm2 / phi-2: tokenizers no train family uses
 testA: ["tiiuae/falcon3-*", "smollm", "allenai/olmo-*", "lgai-exaone/*", "internlm", "pints-ai/*",
         "tinyllama", "bloom", "pythia", "gpt-neo", "facebook/opt-*", "microsoft/phi-1_5"]

@@ -5,8 +5,8 @@ import pytest
 
 from onepunch.episodes import EpisodeSampler, standardize_scales
 from onepunch.readout import RidgeReadout
-from onepunch.search import (BestOfN, EpisodicObjective, MonitorObjective, PromptConstraints, RandomSwap,
-                             SearchLoop)
+from onepunch.search import (BestOfN, EpisodicObjective, PromptConstraints, RandomSwap, SearchLoop,
+                             ValidationObjective)
 from onepunch.types import Optimizer
 
 
@@ -66,13 +66,13 @@ INIT = "The quick brown fox jumps over the lazy dog. Café über naïve.".encode
 def test_step_loss_never_increases(population, fake_source):
     obj = _objective(population, fake_source, step_pool={"n_families": 6, "models_per_family": 4, "redraw_every": 3})
     opt = RandomSwap(ByteTokenizer(), n_candidates=8, allowed="printable_ascii")
-    res = SearchLoop(opt, obj, steps=8, monitor_every=100).run(INIT, np.random.default_rng(0))
+    res = SearchLoop(opt, obj, steps=8, val_every=100).run(INIT, np.random.default_rng(0))
     assert len(res.history) == 8
     for h in res.history:
         assert h["loss"] <= h["loss_before"] + 1e-15  # current prompt is among the scored candidates
         assert h["n_valid"] > 0
     assert any(h["loss"] < h["loss_before"] for h in res.history)  # some step improved
-    assert math.isnan(res.best_monitor_loss) and res.best_step_loss == min(h["loss"] for h in res.history)
+    assert math.isnan(res.best_val_loss) and res.best_step_loss == min(h["loss"] for h in res.history)
 
 
 def test_monotone_across_steps_with_fixed_episodes(population, fake_source):
@@ -91,7 +91,7 @@ def test_monotone_across_steps_with_fixed_episodes(population, fake_source):
             return obj(prompts)
 
     opt = RandomSwap(ByteTokenizer(), n_candidates=8)
-    res = SearchLoop(opt, FixedEpisodes(), steps=10, monitor_every=100).run(INIT, np.random.default_rng(1))
+    res = SearchLoop(opt, FixedEpisodes(), steps=10, val_every=100).run(INIT, np.random.default_rng(1))
     losses = [h["loss"] for h in res.history]
     assert all(b <= a + 1e-15 for a, b in zip(losses, losses[1:]))
     assert res.final_prompt != INIT
@@ -106,35 +106,42 @@ def test_one_feature_call_per_scoring(population, fake_source):
     assert fake_source.calls[-1] == (len(obj.rows), 3)
 
 
-def test_monitor_best_and_initial_baseline(population, fake_source):
+def test_val_best_and_initial_baseline(population, fake_source):
     obj = _objective(population, fake_source)
     train = [i for i, f in enumerate(population.families) if f not in ("fam6", "fam7")]
-    mon = [i for i, f in enumerate(population.families) if f in ("fam6", "fam7")]
+    va = [i for i, f in enumerate(population.families) if f in ("fam6", "fam7")]
     sigma = standardize_scales(population.S[train])
-    monitor = MonitorObjective(fake_source, [population.specs[i] for i in train], population.S[train],
-                               [population.specs[i] for i in mon], population.S[mon], RidgeReadout(0.1), sigma)
-    init_m = monitor(INIT)
+    val = ValidationObjective(fake_source, [population.specs[i] for i in train], population.S[train],
+                              [population.specs[i] for i in va], population.S[va], RidgeReadout(0.1), sigma)
+    init_m = val(INIT)
     opt = RandomSwap(ByteTokenizer(), n_candidates=8)
-    res = SearchLoop(opt, obj, monitor=monitor, steps=9, monitor_every=3, patience=10).run(INIT, np.random.default_rng(2))
-    assert res.best_monitor_loss <= init_m + 1e-15
-    assert np.isclose(monitor(res.best_prompt), res.best_monitor_loss)
-    assert sum("monitor_loss" in h for h in res.history) == 3
+    res = SearchLoop(opt, obj, val=val, steps=9, val_every=3, patience=10).run(INIT, np.random.default_rng(2))
+    assert res.best_val_loss <= init_m + 1e-15
+    assert np.isclose(val(res.best_prompt), res.best_val_loss)
+    assert sum("val_loss" in h for h in res.history) == 3
 
 
 def test_early_stopping():
     seq = iter([0.5] + [1.0] * 100)
     obj = FuncObjective(_loss_of)
-    res = SearchLoop(FixedProposals([b"x" * 30]), obj, monitor=lambda p: next(seq),
-                     steps=100, monitor_every=2, patience=3).run(b"init" * 10, np.random.default_rng(0))
-    assert len(res.history) == 2 * 3  # stops after `patience` monitor checks without improvement
-    assert res.best_prompt == b"init" * 10 and res.best_monitor_loss == 0.5
+    res = SearchLoop(FixedProposals([b"x" * 30]), obj, val=lambda p: next(seq),
+                     steps=100, val_every=2, patience=3).run(b"init" * 10, np.random.default_rng(0))
+    assert len(res.history) == 2 * 3  # stops after `patience` validation checks without improvement
+    assert res.best_prompt == b"init" * 10 and res.best_val_loss == 0.5
+    assert res.init_val_loss == 0.5  # the initial prompt's check is reported separately
+
+
+def test_init_val_loss_nan_without_val():
+    res = SearchLoop(FixedProposals([]), FuncObjective(_loss_of), steps=2).run(b"init" * 10,
+                                                                               np.random.default_rng(0))
+    assert math.isnan(res.init_val_loss)
 
 
 def test_early_stopping_resets_on_improvement():
     it = iter([1.0, 0.9, 1.0, 0.8, 1.0, 1.0, 1.0])  # init, then one value per check
-    res = SearchLoop(FixedProposals([]), FuncObjective(_loss_of), monitor=lambda p: next(it),
-                     steps=100, monitor_every=1, patience=2).run(b"a", np.random.default_rng(0))
-    assert res.best_monitor_loss == 0.8
+    res = SearchLoop(FixedProposals([]), FuncObjective(_loss_of), val=lambda p: next(it),
+                     steps=100, val_every=1, patience=2).run(b"a", np.random.default_rng(0))
+    assert res.best_val_loss == 0.8
 
 
 def test_constraints_filter_before_scoring():
@@ -150,7 +157,7 @@ def test_constraints_filter_before_scoring():
     obj = FuncObjective(_loss_of)
     c2 = PromptConstraints(min_bytes=4, max_bytes=20)
     res = SearchLoop(FixedProposals([bad_utf8, too_long, good, b"ab"]), obj, constraints=c2, steps=3,
-                     monitor_every=100).run(b"initial", np.random.default_rng(0))
+                     val_every=100).run(b"initial", np.random.default_rng(0))
     assert bad_utf8 not in obj.evaluated and too_long not in obj.evaluated and b"ab" not in obj.evaluated
     assert good in obj.evaluated
     assert all(h["n_proposed"] == 4 and h["n_valid"] == 1 for h in res.history[:1])
@@ -159,7 +166,7 @@ def test_constraints_filter_before_scoring():
 def test_best_of_n_best_is_min_of_all_evaluated():
     obj = FuncObjective(_loss_of)
     opt = BestOfN("random_ascii", length_bytes=40, n_candidates=16)
-    res = SearchLoop(opt, obj, steps=10, monitor_every=100).run(b"i" * 40, np.random.default_rng(0))
+    res = SearchLoop(opt, obj, steps=10, val_every=100).run(b"i" * 40, np.random.default_rng(0))
     assert len(obj.evaluated) >= 10 * 16
     assert _loss_of(res.best_prompt) == min(_loss_of(p) for p in obj.evaluated)
     assert res.best_step_loss == min(_loss_of(p) for p in obj.evaluated)
@@ -221,11 +228,11 @@ def test_hooks_extras_and_logger(population, fake_source):
         masks.append(t)
         return m, "tokA"
 
-    SearchLoop(Opt(), obj, steps=4, monitor_every=100, logger=lg, log_prompt_every=2,
+    SearchLoop(Opt(), obj, steps=4, val_every=100, logger=lg, log_prompt_every=2,
                active_schedule=sched).run(b"seed prompt", np.random.default_rng(0))
     assert {"episodes", "step_models", "S_step", "sigma"} <= seen["extras"]
     assert masks == [0, 1, 2, 3]
-    assert len(lg.logs) == 4 and {"search/loss", "search/n_valid", "search/wall_time"} <= set(lg.logs[0][1])
+    assert len(lg.logs) == 4 and {"train/loss", "train/loss_before", "search/n_valid"} <= set(lg.logs[0][1])
     assert len(lg.tables) == 2 and len(lg.tables[-1][2]) == 2
 
 

@@ -1,4 +1,4 @@
-# Monitor models for the tier_s search (early stopping / best-prompt selection only).
+# Validation models for the tier_s search (early stopping / best-prompt selection only).
 # 3 families with 3 different tokenizers; up to 3.8B (no unused archive family <= 2B has enough models).
 models:
   # deepseek-ai/deepseek-r1-distill-qwen-1.5b (Qwen tokenizer, reasoning distill)

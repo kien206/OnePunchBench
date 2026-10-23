@@ -25,7 +25,7 @@ The knobs that play the role of "optimizer, learning rate, epochs, early stoppin
 | Optimizer (prompt search algorithm) | `search/*.yaml` → `optimizer` | `_target_` picks the class. `random_swap`: `n_candidates`, `allowed` tokens, surrogate `tokenizer`. `best_of_n`: `generator`, `length_bytes`, `n_candidates`. Future GCG adds `top_k` and the surrogate groups |
 | "Step size" | `search.optimizer` | Candidates per step (`n_candidates`). Each candidate is a single-token swap, so steps are small by design |
 | Epochs / iterations | `search.loop` | `steps` |
-| Early stopping | `search.loop` | `monitor_every` (check the monitor loss every N steps) and `patience` (stop after N checks without improvement) |
+| Early stopping | `search.loop` | `val_every` (check the validation loss every N steps) and `patience` (stop after N checks without improvement) |
 | Batch / minibatch | `episodes/*.yaml` | `n_episodes` per step, `n_in`/`n_out` models per episode, `step_families` × `step_models_per_family` models loaded per step, `redraw_pool_every` |
 | Regularization | `readout/ridge.yaml` | `lambda0` (λ = λ0·N) and the `cv.lambda0_grid` searched when `train.cv_lambda0=true` |
 | Model size / capacity | `features/*.yaml` | `d` (chunks = features), `l_chunk` (bytes per chunk, so \|p\| ≥ d·l_chunk) |
@@ -69,14 +69,14 @@ Three things, each in one place:
    | Split | Meaning |
    | --- | --- |
    | `train` | Archive families: search episodes and the final readout |
-   | `monitor` | Archive families: early stopping and choosing the best prompt only |
+   | `val` | Archive families: early stopping and choosing the best prompt only |
    | `calib` | Archive families: error bars only |
    | `testA` | Held-out archive families of the same era |
    | `testB` | Families released after the leaderboard closed (2025-03-13). They need our own lm-eval scores, so this split is **empty in stage 1** |
    | `testC` | Held-out architectures (MoE, hybrid, recurrent) |
    | `excluded` | Unusable: mixed-root merges, unsupported architectures, families with fewer than 3 models |
 
-3. **Roles** (`roles:` in `config.yaml`): which splits of the pool train, monitor and evaluate. Example: `roles.eval=[testA]`.
+3. **Roles** (`roles:` in `config.yaml`): which splits of the pool train, validate and evaluate. Example: `roles.eval=[testA]`.
 
 Models without a score on every benchmark in `scores.benchmarks` are dropped. To see the result for any config before running it:
 
@@ -92,10 +92,11 @@ python scripts/describe_run.py pool=tier_s --models   # ... and every model id
   - `sources: [archive]`: ground truth only from the Open LLM Leaderboard archive (stage 1).
   - `protocol_version`: scores from different evaluation protocols are never mixed.
 - **`roles`**: see above.
-- **`train`**: `init_prompt`, `cv_lambda0`, `n_boot`.
+- **`train`**: `init_prompt`, `cv_lambda0`, `n_boot`, `baselines` (`[mean, log_params]`: prompt-free reference
+  metrics written to `metrics.json` as `baseline/<name>/...` and printed by `scripts/report_metrics.py`; `[]` = off).
 - **`predict`**: `artifact` (required), plus `model_ids` (any HF ids) or `splits` of the pool.
 - **`paths`**: data locations. Override the root with `ONEPUNCH_ROOT`.
-- Experiment scripts add their own options under `exp` (see each script's `EXP_DEFAULTS`). Set them with a leading `+`, e.g. `+exp.splits=[train,monitor]`.
+- Experiment scripts add their own options under `exp` (see each script's `EXP_DEFAULTS`). Set them with a leading `+`, e.g. `+exp.splits=[train,val]`.
 
 ## Feature maps
 

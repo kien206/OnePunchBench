@@ -9,7 +9,7 @@ CFG = {
     "family_aliases": {"org7/*": "alias7"},
     "testC": {"archs": ["*Mamba*", "*Moe*"], "use_moe_flag": True},
     "excluded_archs": ["T5*"],
-    "monitor": ["fam1"], "calib": ["fam2"], "testA": ["fam3"],
+    "val": ["fam1"], "calib": ["fam2"], "testA": ["fam3"],
     "train_min_models": 3,
     "surrogates": {"grpA": ["org0/model0-0"]},
     "overrides": {},
@@ -38,14 +38,14 @@ def test_basic_assignment_and_family_chain(df):
     assert set(out["family"]) == {"org0/model0-0", "org1/model1-0", "org2/model2-0", "org3/model3-0",
                                   "org4/model4-0", "org5/model5-0", "org6/model6-0", "alias7"}
     # patterns match the lowercased family name, so use explicit ids here
-    cfg = {**CFG, "monitor": ["org1/model1-0"], "calib": ["org2/model2-0"], "testA": ["org3/model3-0"]}
+    cfg = {**CFG, "val": ["org1/model1-0"], "calib": ["org2/model2-0"], "testA": ["org3/model3-0"]}
     out = assign_splits(df, cfg)
-    assert split_of(out, "org1/model1-0") == "monitor"
+    assert split_of(out, "org1/model1-0") == "val"
     assert split_of(out, "org2/model2-0") == "calib"
     assert split_of(out, "org3/model3-0") == "testA"
     assert split_of(out, "org0/model0-0") == "train"
     assert split_of(out, "alias7") == "train"
-    assert out["split"].isin(["train", "monitor", "calib", "testA"]).all()
+    assert out["split"].isin(["train", "val", "calib", "testA"]).all()
 
 
 def test_deterministic_and_idempotent(df):
@@ -58,7 +58,7 @@ def test_deterministic_and_idempotent(df):
 
 
 def test_families_never_span_splits(df):
-    cfg = {**CFG, "monitor": ["org1/model1-0"], "testC": {"archs": ["*Mamba*"], "use_moe_flag": True}}
+    cfg = {**CFG, "val": ["org1/model1-0"], "testC": {"archs": ["*Mamba*"], "use_moe_flag": True}}
     d = df.copy()
     d.loc[d["family"].isna() & d["model_id"].str.startswith("org4"), "arch"] = "MambaForCausalLM"
     d.loc[d["model_id"] == "org5/model5-1", "moe"] = True  # single MoE model inside a dense family
@@ -140,6 +140,6 @@ def test_canonical_family_and_real_config():
     assert canonical_family("Meta-Llama/Llama-3.2-1B", {"meta-llama/llama-3*": "llama3"}) == "llama3"
     assert canonical_family("Qwen/Qwen2.5-0.5B") == "qwen/qwen2.5-0.5b"
     cfg = load_splits_config("data/splits.yaml")
-    assert {"monitor", "calib", "testA", "cutoff_date"} <= set(cfg)
-    listed = [p for k in ("monitor", "calib", "testA") for p in cfg[k]]
+    assert {"val", "calib", "testA", "cutoff_date"} <= set(cfg)
+    listed = [p for k in ("val", "calib", "testA") for p in cfg[k]]
     assert len(listed) == len(set(listed))

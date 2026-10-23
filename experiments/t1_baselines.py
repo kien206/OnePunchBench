@@ -7,7 +7,7 @@ Leave-one-family-out ridge on fixed-prompt baselines, scored with the same reado
 lambda0 is chosen by family-grouped CV inside each LOFO fold (nested, no leakage).
 
   python experiments/t1_baselines.py                     # smoke pool, d=16
-  python experiments/t1_baselines.py pool=tier_s +exp.splits=[train,monitor] logger.mode=offline
+  python experiments/t1_baselines.py pool=tier_s +exp.splits=[train,val] logger.mode=offline
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ from onepunch.utils.experiment import load_population, load_prompt, start_run
 log = logging.getLogger(__name__)
 
 EXP_DEFAULTS = {
-    "splits": None,                  # e.g. [train, monitor]; None = every model of the pool
+    "splits": None,                  # e.g. [train, val]; None = every model of the pool
     "random_length_bytes": 2048,
     "random_tokenizer": "Qwen/Qwen2.5-0.5B",
     "n_boot": 1000,

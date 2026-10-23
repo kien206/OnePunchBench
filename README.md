@@ -15,7 +15,7 @@ $PY -m pytest -q            # -m "not slow" skips model/tokenizer downloads
 ## Train and predict
 
 ```bash
-./run_train.sh                                           # train / validate on monitor / test, prints RMSE (settings at the top of the file)
+./run_train.sh                                           # train / validate on val / test, prints RMSE (settings at the top of the file)
 nohup ./run_train.sh > run_train.out 2>&1 &              # same, survives logout
 $PY scripts/describe_run.py pool=tier_s                  # what a run would use (models per role, cached weights)
 $PY scripts/report_metrics.py runs/<date>/<time>_train   # RMSE / Spearman table of a finished run
@@ -60,7 +60,7 @@ $PY scripts/check_reproduction.py                      # Gate 0: ours vs archive
 
 ```bash
 $PY experiments/e0_feature_checks.py logger.mode=offline                  # E0 determinism checks
-$PY experiments/t1_baselines.py pool=tier_s +exp.splits=[train,monitor]   # T1 baselines, Gate 1
+$PY experiments/t1_baselines.py pool=tier_s +exp.splits=[train,val]   # T1 baselines, Gate 1
 ```
 
 Each experiment is a standalone script. Its own options are `EXP_DEFAULTS`, overridden with `+exp.<key>=...`.
@@ -77,7 +77,7 @@ Each experiment is a standalone script. Its own options are `EXP_DEFAULTS`, over
 | `src/onepunch/data/` | `Registry`, `ScoreTable`, benchmarks, splits, archive census |
 | `src/onepunch/features/` | HF backend (`[BOS]+tok(p0)+tok(p)`, byte spans), chunk features, log-prob cache, model pool, `FeatureExtractor` |
 | `src/onepunch/readout/` | `Readout` ABC and `RidgeReadout` (closed form, float64, differentiable) |
-| `src/onepunch/episodes/` | Episode sampler, episodic and monitor loss, λ0 CV |
+| `src/onepunch/episodes/` | Episode sampler, episodic and validation loss, λ0 CV |
 | `src/onepunch/search/` | `SearchLoop`, objectives, constraints, `RandomSwap`, `BestOfN` |
 | `src/onepunch/eval/` | Metrics, family bootstrap, LOFO, `FittedPredictor` |
 | `src/onepunch/groundtruth/` | lm-eval wrapper and reproduction check (stage 2) |

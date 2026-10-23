@@ -5,7 +5,7 @@ Models and scores are **data**, not config. Everything a run reads lives here.
 | Path | Stage | What it is | Made by | Tracked in git |
 | --- | --- | --- | --- | --- |
 | `benchmarks.yaml` | 1 | The six Open LLM Leaderboard v2 benchmarks: lm-eval task, metric, shots, item count | hand-written | yes |
-| `splits.yaml` | 1 | Rules for assigning each model *family* to a split (train / monitor / calib / testA / testB / testC / excluded) | hand-written | yes |
+| `splits.yaml` | 1 | Rules for assigning each model *family* to a split (train / val / calib / testA / testB / testC / excluded) | hand-written | yes |
 | `models/*.yaml` | 1 | Lists of HF model ids. Pools point to them via `model_list` | `scripts/select_pool_models.py` or by hand | yes |
 | `prompts/*.txt` | 1 | Fixed prompts (raw bytes): the starting prompt and the T1 baselines | hand-written | yes |
 | `archive/oll_v2_contents.parquet` | 1 | Raw snapshot of the Open LLM Leaderboard v2 (HF dataset `open-llm-leaderboard/contents`), as downloaded | `scripts/pull_open_llm_leaderboard.py` | no |

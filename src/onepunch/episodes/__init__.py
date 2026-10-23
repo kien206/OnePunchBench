@@ -1,9 +1,9 @@
 from onepunch.episodes.cv import family_folds, select_lambda0
-from onepunch.episodes.loss import (episode_loss, episode_losses, fit_predict, monitor_loss,
+from onepunch.episodes.loss import (episode_loss, episode_losses, fit_predict, validation_loss,
                                     standardize_scales)
 from onepunch.episodes.sampler import EpisodeSampler, sample_step_pool
 
-__all__ = ["EpisodeSampler", "sample_step_pool", "episode_loss", "episode_losses", "monitor_loss",
+__all__ = ["EpisodeSampler", "sample_step_pool", "episode_loss", "episode_losses", "validation_loss",
            "standardize_scales", "fit_predict", "select_lambda0", "family_folds", "build_step_pool_cfg"]
 
 

@@ -1,6 +1,6 @@
 # No search: use the fixed prompt as is. Experiments skip the loop when optimizer is null.
 optimizer: null
-loop: {steps: 0, monitor_every: 10, patience: 5, log_prompt_every: 10}
+loop: {steps: 0, val_every: 10, patience: 5, log_prompt_every: 10}
 constraints:
   max_bytes: 2048       # min_bytes = d * L_chunk is supplied by the caller
   max_tokens: 1024      # smallest context window among models, minus a margin

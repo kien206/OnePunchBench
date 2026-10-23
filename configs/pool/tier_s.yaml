@@ -1,13 +1,13 @@
-# POOL = which models a run loads (training, monitor and evaluation models together).
+# POOL = which models a run loads (training, validation and evaluation models together).
 # What each model is used for is decided by its split + `roles` in config.yaml, not here.
 #   model_list: file(s) of HF ids, relative to the repo root
 #   where:      extra conditions on registry columns (Registry.filter arguments); all must hold
 description: >-
   Search pool, round 1. Open LLM Leaderboard v2 models: 75 <= 2B (train / testA / testC / calib,
-  scripts/select_pool_models.py, max 6 per training family) + 17 monitor models up to 3.8B.
+  scripts/select_pool_models.py, max 6 per training family) + 17 validation models up to 3.8B.
 model_list:
   - data/models/tier_s_round1.yaml
-  - data/models/monitor_round1.yaml
+  - data/models/val_round1.yaml
 where:
   on_hub: true
   max_params_b: 4.0

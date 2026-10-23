@@ -4,7 +4,7 @@ optimizer:
   length_bytes: 2048
   n_candidates: 32
   tokenizer: null
-loop: {steps: 200, monitor_every: 10, patience: 5, log_prompt_every: 10}
+loop: {steps: 200, val_every: 10, patience: 5, log_prompt_every: 10}
 constraints:
   max_bytes: 2048
   max_tokens: 1024

@@ -1,6 +1,6 @@
 # Family -> split assignment (consumed by onepunch.data.splits / scripts/assign_splits.py).
 # Family = root of the Base Model chain, lowercased, unless merged by `family_aliases`.
-# Patterns are fnmatch globs on the lowercase family name. The monitor / calib / testA
+# Patterns are fnmatch globs on the lowercase family name. The val / calib / testA
 # lists are PROVISIONAL: the E0 census (registry counts per family) finalizes them.
 
 cutoff_date: "2025-03-13"        # families first released after this -> testB (leaderboard retired)
@@ -20,7 +20,7 @@ family_aliases:
   "stabilityai/stablelm-2-*": stablelm2
   "internlm/*": internlm
   # one pretraining lineage each (the per-size / per-version roots fragmented them, and a Phi-3
-  # 4-bit fine-tune had landed in train while other Phi-3 models were monitor)
+  # 4-bit fine-tune had landed in train while other Phi-3 models were val)
   "microsoft/phi-3*": phi3
   "unsloth/phi-3*": phi3
   "ibm-granite/granite-3.0-2b*": granite3
@@ -37,8 +37,8 @@ excluded_archs: ["T5*", "MT5*", "UMT5*", "SwitchTransformers*", "*SequenceClassi
                  "*RewardModel*", "*CausalRM", "LLMForSequenceRegression", "Qwen2Model", "GemmaModel"]
 
 # (patterns match the family AFTER aliasing)
-# monitor: 3 families / 3 tokenizers in tier_s (data/models/monitor_round1.yaml, 2026-10-17)
-monitor: ["deepseek-ai/deepseek-r1-distill-qwen-*", "phi3", "granite3", "mistralai/mistral-nemo-base-2407"]
+# val: 3 families / 3 tokenizers in tier_s (data/models/val_round1.yaml, 2026-10-17)
+val: ["deepseek-ai/deepseek-r1-distill-qwen-*", "phi3", "granite3", "mistralai/mistral-nemo-base-2407"]
 calib: ["microsoft/phi-2", "stablelm2", "google/gemma-2b"]   # stablelm2 / phi-2: tokenizers no train family uses
 testA: ["tiiuae/falcon3-*", "smollm", "allenai/olmo-*", "lgai-exaone/*", "internlm", "pints-ai/*",
         "tinyllama", "bloom", "pythia", "gpt-neo", "facebook/opt-*", "microsoft/phi-1_5"]

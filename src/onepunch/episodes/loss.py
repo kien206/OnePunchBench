@@ -79,13 +79,13 @@ def episode_loss(Phi, S, episodes: Sequence[Episode], readout: Readout, sigma=No
     return episode_losses(Phi, S, episodes, readout, sigma, center).mean(0)
 
 
-def monitor_loss(Phi_train, S_train, Phi_mon, S_mon, readout: Readout, sigma=None,
-                 center: bool = True) -> torch.Tensor:
-    """Fit on all training models, score on the monitor models (same normalization).
+def validation_loss(Phi_train, S_train, Phi_val, S_val, readout: Readout, sigma=None,
+                    center: bool = True) -> torch.Tensor:
+    """Fit on all training models, score on the validation models (same normalization).
 
     Phi [N, d] -> scalar; Phi [N, P, d] -> [P].
     """
-    Phi_train, Phi_mon = _t(Phi_train), _t(Phi_mon)
+    Phi_train, Phi_val = _t(Phi_train), _t(Phi_val)
     if Phi_train.ndim == 3:
-        Phi_train, Phi_mon = Phi_train.permute(1, 0, 2), Phi_mon.permute(1, 0, 2)
-    return _split_loss(Phi_train, _t(S_train), Phi_mon, S_mon, readout, sigma, center)
+        Phi_train, Phi_val = Phi_train.permute(1, 0, 2), Phi_val.permute(1, 0, 2)
+    return _split_loss(Phi_train, _t(S_train), Phi_val, S_val, readout, sigma, center)

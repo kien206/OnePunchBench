@@ -34,6 +34,13 @@ def mse_per_benchmark(pred, true) -> np.ndarray:
         return np.nanmean((p - t) ** 2, axis=0)
 
 
+def standardized_mse(pred, true, sigma) -> float:
+    """mean(((pred - true) / sigma)^2) over models and benchmarks: the units of the search loss."""
+    p, t = _2d(pred), _2d(true)
+    with np.errstate(all="ignore"):
+        return float(np.nanmean(((p - t) / np.asarray(sigma, dtype=np.float64)) ** 2))
+
+
 def rmse_per_benchmark(pred, true) -> np.ndarray:
     """RMSE in raw score points (scores in [0,1] -> x100)."""
     return 100.0 * np.sqrt(mse_per_benchmark(pred, true))

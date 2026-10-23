@@ -14,7 +14,7 @@ import yaml
 from onepunch.data.census import norm_id, resolve_roots
 from onepunch.types import SPLITS
 
-LISTED_SPLITS = ("monitor", "calib", "testA")
+LISTED_SPLITS = ("val", "calib", "testA")
 
 
 def load_splits_config(path: str | Path = "data/splits.yaml") -> dict[str, Any]:
@@ -75,7 +75,7 @@ def assign_splits(
          (their family is the model itself);
       1. family first released after cutoff_date -> testB;
       2. family whose majority of models is MoE / hybrid / recurrent -> testC;
-      3. family matches a monitor / calib / testA pattern -> that split;
+      3. family matches a val / calib / testA pattern -> that split;
       4. families with >= train_min_models hub models -> train, else "excluded".
     Models of a testC-free family that are individually MoE/hybrid -> "excluded".
     """

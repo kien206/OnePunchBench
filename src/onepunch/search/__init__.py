@@ -8,11 +8,11 @@ from omegaconf import OmegaConf
 from onepunch.search.best_of_n import BestOfN
 from onepunch.search.constraints import PromptConstraints, roundtrip_ok
 from onepunch.search.loop import SearchLoop, SearchResult
-from onepunch.search.objective import EpisodicObjective, MonitorObjective
+from onepunch.search.objective import EpisodicObjective, ValidationObjective
 from onepunch.search.random_swap import RandomSwap
 
 __all__ = ["SearchLoop", "SearchResult", "PromptConstraints", "roundtrip_ok", "RandomSwap", "BestOfN",
-           "EpisodicObjective", "MonitorObjective", "build_optimizer", "build_constraints"]
+           "EpisodicObjective", "ValidationObjective", "build_optimizer", "build_constraints"]
 
 
 def build_optimizer(cfg) -> Any | None:

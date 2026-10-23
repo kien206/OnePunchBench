@@ -16,6 +16,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import logging
+import math
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -27,12 +28,13 @@ from onepunch.data.registry import Registry, select_pool
 from onepunch.data.scores import ScoreTable
 from onepunch.episodes import EpisodeSampler, build_step_pool_cfg, select_lambda0, standardize_scales
 from onepunch.eval.bootstrap import family_bootstrap
+from onepunch.eval.baselines import baseline_metrics
 from onepunch.eval.lofo import FittedPredictor, fit_predictor
-from onepunch.eval.metrics import mean_spearman, summarize
+from onepunch.eval.metrics import mean_spearman, standardized_mse, summarize
 from onepunch.features import build_feature_source
 from onepunch.features.hf_backend import load_tokenizer
 from onepunch.readout import build_readout, lambda0_grid
-from onepunch.search import (EpisodicObjective, MonitorObjective, SearchLoop, build_constraints,
+from onepunch.search import (EpisodicObjective, SearchLoop, ValidationObjective, build_constraints,
                              build_optimizer)
 from onepunch.types import FeatureSource, ModelSpec
 from onepunch.utils.experiment import Population, load_population, load_prompt, start_run
@@ -73,11 +75,12 @@ def _feature_cfg_from_meta(cfg: DictConfig, meta: dict[str, Any]) -> DictConfig:
 # --------------------------------------------------------------------------- evaluation
 
 def evaluate(predictor: FittedPredictor, extractor: FeatureSource, pop: Population, prompt: bytes,
-             n_boot: int, rng: np.random.Generator) -> tuple[dict[str, float], np.ndarray]:
-    """Metrics of the predictor on `pop` (which has ground truth); returns (metrics, predictions).
+             n_boot: int, rng: np.random.Generator) -> tuple[dict[str, float], np.ndarray, Population]:
+    """Metrics of the predictor on `pop` (which has ground truth); returns (metrics, predictions, scored).
 
     Models the backend cannot load (e.g. custom code without trust_remote_code) are skipped and
-    counted in `n_failed`; metrics cover the remaining models."""
+    counted in `n_failed`; metrics and `scored` cover the remaining models. `loss` is in the units
+    of the search loss (squared error / training sigma)."""
     rows, ok = [], []
     for i, spec in enumerate(pop.specs):
         try:
@@ -91,21 +94,24 @@ def evaluate(predictor: FittedPredictor, extractor: FeatureSource, pop: Populati
         raise RuntimeError("no model of this split could be scored")
     pred = predictor.predict(np.stack(rows))
     metrics = summarize(pred, pop.S, pop.families, pop.benchmarks)
+    metrics["loss"] = standardized_mse(pred, pop.S, predictor.sigma)
     if len(set(pop.families)) > 1:
         _, lo, hi = family_bootstrap(mean_spearman, pred, pop.S, pop.families, n_boot=n_boot, rng=rng)
         metrics.update({"spearman/mean_ci_lo": lo, "spearman/mean_ci_hi": hi})
     metrics["n_models"], metrics["n_families"], metrics["n_failed"] = len(pop), len(set(pop.families)), n_failed
-    return metrics, pred
+    return metrics, pred, pop
 
 
 # --------------------------------------------------------------------------- training
 
-def _cv_lambda0(readout, extractor: FeatureSource, pop: Population, prompt: bytes, grid) -> None:
+def _cv_lambda0(readout, extractor: FeatureSource, pop: Population, prompt: bytes, grid) -> float:
+    """Set readout.lambda0 by family-grouped CV; returns the held-out-family loss at that lambda0."""
     if not hasattr(readout, "lambda0"):
-        return
+        return math.nan
     Phi = extractor.features(pop.specs, [prompt])[:, 0]
     readout.lambda0, table = select_lambda0(Phi, pop.S, pop.families, grid)
     log.info("lambda0 = %g (CV mse: %s)", readout.lambda0, {k: round(v, 4) for k, v in table.items()})
+    return table[readout.lambda0]
 
 
 def train(cfg: DictConfig) -> Path:
@@ -113,22 +119,24 @@ def train(cfg: DictConfig) -> Path:
     run = start_run(cfg, "train")
     t, roles = cfg.train, cfg.roles
     pop = load_population(cfg)
-    tr, mon = pop.where(roles.train), pop.where(roles.monitor or [])
+    tr, va = pop.where(roles.train), pop.where(roles.val or [])
     if len(set(tr.families)) < 2:
         raise SystemExit(f"need >= 2 training families, got {len(set(tr.families))} (pool={cfg.pool})")
-    log.info("train: %d models / %d families; monitor: %d models", len(tr), len(set(tr.families)), len(mon))
+    log.info("train: %d models / %d families; val: %d models", len(tr), len(set(tr.families)), len(va))
 
     init = load_prompt(cfg, t.init_prompt)
     persistent = build_feature_source(cfg)                # named prompts -> disk cache
     source = build_feature_source(cfg, persist=False,     # search candidates -> memory only;
                                   share_with=persistent)  # one model pool = one RAM budget
     readout, grid = build_readout(cfg.readout), lambda0_grid(cfg.readout)
-    if t.cv_lambda0:
-        _cv_lambda0(readout, persistent, tr, init, grid)
+    lofo = _cv_lambda0(readout, persistent, tr, init, grid) if t.cv_lambda0 else math.nan
     sigma = standardize_scales(tr.S, bool(cfg.episodes.standardize))
 
     optimizer = build_optimizer(cfg.search)
     history: list[dict] = []
+    init_val = math.nan
+    summary: dict[str, Any] = {"n_train_models": len(tr), "n_train_families": len(set(tr.families)),
+                               "n_val_models": len(va), "lambda0/init": getattr(readout, "lambda0", None)}
     if optimizer is None:
         log.info("search=none: fixed-prompt training (readout only)")
         best = init
@@ -136,18 +144,20 @@ def train(cfg: DictConfig) -> Path:
         objective = EpisodicObjective(source, tr.specs, tr.S, tr.families, tr.tokenizers,
                                       EpisodeSampler.from_cfg(cfg.episodes), readout, sigma,
                                       step_pool=build_step_pool_cfg(cfg.episodes))
-        monitor = MonitorObjective(source, tr.specs, tr.S, mon.specs, mon.S, readout, sigma) if len(mon) else None
-        if monitor is None:
-            log.warning("no monitor models: the best prompt is chosen by step loss")
+        val = ValidationObjective(source, tr.specs, tr.S, va.specs, va.S, readout, sigma) if len(va) else None
+        if val is None:
+            log.warning("no validation models: the best prompt is chosen by step loss")
         reps = {tok: s for tok, s in zip(pop.tokenizers, pop.specs)}   # one model per tokenizer
         constraints = build_constraints(cfg.search, int(cfg.features.d) * int(cfg.features.get("l_chunk", 0)),
                                         [load_tokenizer(s) for s in reps.values()])
-        loop = SearchLoop(optimizer, objective, monitor, constraints, logger=run.logger,
+        loop = SearchLoop(optimizer, objective, val, constraints, logger=run.logger,
                           **OmegaConf.to_container(cfg.search.loop, resolve=True))
         result = loop.run(init, run.rng)
-        best, history = result.best_prompt, result.history
+        best, history, init_val = result.best_prompt, result.history, result.init_val_loss
+        summary.update({"val/init_loss": init_val, "val/best_loss": result.best_val_loss,
+                        "train/best_step_loss": result.best_step_loss, "stopped_early": len(history) < loop.steps})
         if t.cv_lambda0:   # formulation: lambda0 re-selected for p*
-            _cv_lambda0(readout, persistent, tr, best, grid)
+            lofo = _cv_lambda0(readout, persistent, tr, best, grid)
 
     Phi = persistent.features(tr.specs, [best])[:, 0]
     meta = {"d": int(persistent.d), "features_cfg": OmegaConf.to_container(cfg.features, resolve=True),
@@ -156,22 +166,32 @@ def train(cfg: DictConfig) -> Path:
             "lambda0": getattr(readout, "lambda0", None), "score_sources": list(cfg.scores.sources)}
     predictor = fit_predictor(Phi, tr.S, readout, bool(cfg.episodes.standardize), meta=meta)
     art = save_artifact(run.out_dir / "artifact", best, predictor, cfg, tr.model_ids)
-    (run.out_dir / "history.json").write_text(json.dumps(history, indent=1, default=float))
+    init_rec = [] if math.isnan(init_val) else [{"step": -1, "val_loss": init_val}]  # step -1: initial prompt
+    (run.out_dir / "history.json").write_text(json.dumps(init_rec + history, indent=1, default=float))
 
-    summary: dict[str, Any] = {"prompt_changed": best != init, "steps_run": len(history)}
-    for split in roles.eval or []:
+    summary.update({"prompt_changed": best != init, "steps_run": len(history),
+                    "lambda0/final": getattr(readout, "lambda0", None), "train/lofo_loss": lofo})
+    scored: dict[str, Population] = {}   # per split, the models the prompt predictor was scored on
+    for split in dict.fromkeys(list(roles.val or []) + list(roles.eval or [])):   # val: cached by the search
         ev = pop.where([split])
         if len(ev) == 0:
             continue
         try:
-            metrics, _ = evaluate(predictor, persistent, ev, best, int(t.n_boot), run.rng)
+            metrics, _, scored[split] = evaluate(predictor, persistent, ev, best, int(t.n_boot), run.rng)
         except Exception as e:  # e.g. an architecture the backend cannot load yet; the artifact is saved
             log.error("eval %s failed (%s: %s); skipping this split", split, type(e).__name__, e)
             summary[f"eval/{split}/error"] = f"{type(e).__name__}: {e}"
             continue
         summary.update({f"eval/{split}/{k}": v for k, v in metrics.items()})
-        log.info("eval %-6s n=%-4d spearman=%.3f rmse=%.2f", split, len(ev), metrics["spearman/mean"],
-                 metrics["rmse/mean"])
+        log.info("eval %-6s n=%-4d spearman=%.3f rmse=%.2f loss=%.3f", split, len(ev), metrics["spearman/mean"],
+                 metrics["rmse/mean"], metrics["loss"])
+    if t.get("baselines"):   # prompt-free reference points on the same models
+        base = baseline_metrics(list(t.baselines), tr, scored, lambda: build_readout(cfg.readout), grid,
+                                bool(cfg.episodes.standardize))
+        summary.update(base)
+        for name in t.baselines:
+            log.info("baseline %-10s train lofo=%.3f  %s", name, base[f"baseline/{name}/train/lofo_loss"],
+                     "  ".join(f"{s} loss={base[f'baseline/{name}/{s}/loss']:.3f}" for s in scored))
     (run.out_dir / "metrics.json").write_text(json.dumps(summary, indent=1, default=float))
     run.logger.summary(summary)
     run.logger.log_artifact("onepunch_artifact", "model", [art / f for f in

@@ -28,7 +28,7 @@ scores:
 # `roles` says which splits of the pool are used for what. Models without all benchmark scores
 # are dropped.
 #   train     archive families: search episodes + final readout
-#   monitor   archive families: early stopping / choosing the best prompt only
+#   val       archive families: early stopping / choosing the best prompt only
 #   calib     archive families: error bars only (+ an unseen tokenizer)
 #   testA     held-out archive families of the same era
 #   testB     families released after the leaderboard closed (2025-03-13); needs stage-2 scores,
@@ -37,7 +37,7 @@ scores:
 #   excluded  unusable (mixed-root merges, unsupported architectures, families < 3 models)
 roles:
   train: [train]
-  monitor: [monitor]                    # [] -> pick the best prompt by the training (episode) loss
+  val: [val]                    # [] -> pick the best prompt by the training (episode) loss
   eval: [testA, testB, testC, calib]    # scored once at the end of train.py
 
 # ---------------------------------------------------------------------------------------------
@@ -46,6 +46,7 @@ train:
   init_prompt: generic_passage  # starting prompt: data/prompts/<name>.txt
   cv_lambda0: true              # choose readout.lambda0 by family-grouped CV (initial and final prompt)
   n_boot: 1000                  # family-bootstrap resamples for evaluation confidence intervals
+  baselines: [mean, log_params] # prompt-free reference metrics in metrics.json (eval/baselines.py); [] = off
 
 # predict.py: score models with a trained artifact
 predict:

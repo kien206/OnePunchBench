@@ -41,7 +41,7 @@ REGISTRY_COLUMNS: tuple[str, ...] = (
     "chat_template",     # bool, lm-eval ground truth uses the chat template (archive column)
     "on_hub",            # bool, weights still downloadable
     "tier",              # "S" (search, <= ~2-4B) | "R" (readout/eval only)
-    "split",             # "train" | "monitor" | "calib" | "testA" | "testB" | "testC" | "excluded"
+    "split",             # "train" | "val" | "calib" | "testA" | "testB" | "testC" | "excluded"
     "surrogate_group",   # str | None, e.g. "qwen2" -- only for train models used for gradients
 )
 
@@ -58,7 +58,7 @@ SCORE_COLUMNS: tuple[str, ...] = (
     "date",              # ISO date the score was produced
 )
 
-SPLITS: tuple[str, ...] = ("train", "monitor", "calib", "testA", "testB", "testC", "excluded")
+SPLITS: tuple[str, ...] = ("train", "val", "calib", "testA", "testB", "testC", "excluded")
 
 
 @dataclass(frozen=True)

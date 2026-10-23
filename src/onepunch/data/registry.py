@@ -221,7 +221,7 @@ def select_pool(registry: Registry, pool_cfg: Mapping[str, Any], root: str | Pat
       where       conditions on registry columns = keyword arguments of Registry.filter
                   (tier, max_params_b, on_hub, families, max_per_family, ...)
       description free text
-    Which of these models train / monitor / evaluate is NOT decided here (see `roles` in config.yaml).
+    Which of these models train / validate / evaluate is NOT decided here (see `roles` in config.yaml).
     """
     try:
         from omegaconf import DictConfig, OmegaConf

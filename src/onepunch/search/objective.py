@@ -1,4 +1,4 @@
-"""Search objectives: the episodic step loss L(p) and the monitor loss."""
+"""Search objectives: the episodic step loss L(p) and the validation loss."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import Any, Sequence
 import numpy as np
 import torch
 
-from onepunch.episodes.loss import episode_loss, monitor_loss
+from onepunch.episodes.loss import episode_loss, validation_loss
 from onepunch.episodes.sampler import EpisodeSampler, sample_step_pool
 from onepunch.readout.base import Readout
 from onepunch.types import Episode, FeatureSource, ModelSpec
@@ -87,19 +87,19 @@ class EpisodicObjective:
         return loss.numpy()
 
 
-class MonitorObjective:
-    """Monitor loss: readout fitted on all training models, error on the monitor models."""
+class ValidationObjective:
+    """Validation loss: readout fitted on all training models, error on the validation models."""
 
     def __init__(self, source: FeatureSource, train_models: Sequence[ModelSpec], S_train: np.ndarray,
-                 mon_models: Sequence[ModelSpec], S_mon: np.ndarray, readout: Readout,
+                 val_models: Sequence[ModelSpec], S_val: np.ndarray, readout: Readout,
                  sigma: np.ndarray | None, center: bool = True):
         self.source, self.readout, self.sigma, self.center = source, readout, sigma, center
-        self.train_models, self.mon_models = list(train_models), list(mon_models)
-        self.S_train, self.S_mon = np.asarray(S_train, dtype=np.float64), np.asarray(S_mon, dtype=np.float64)
+        self.train_models, self.val_models = list(train_models), list(val_models)
+        self.S_train, self.S_val = np.asarray(S_train, dtype=np.float64), np.asarray(S_val, dtype=np.float64)
 
     def __call__(self, prompt: bytes) -> float:
-        Phi = self.source.features(self.train_models + self.mon_models, [prompt])[:, 0, :]
+        Phi = self.source.features(self.train_models + self.val_models, [prompt])[:, 0, :]
         n = len(self.train_models)
         with torch.no_grad():
-            return float(monitor_loss(Phi[:n], self.S_train, Phi[n:], self.S_mon, self.readout,
-                                      self.sigma, self.center))
+            return float(validation_loss(Phi[:n], self.S_train, Phi[n:], self.S_val, self.readout,
+                                         self.sigma, self.center))

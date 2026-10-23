@@ -1,6 +1,6 @@
 import torch
 
-from onepunch.episodes import episode_loss, episode_losses, monitor_loss
+from onepunch.episodes import episode_loss, episode_losses, validation_loss
 from onepunch.readout import RidgeReadout
 from onepunch.types import Episode
 
@@ -63,13 +63,13 @@ def test_multi_prompt_matches_loop_and_shapes():
         assert torch.allclose(batched[p], episode_loss(Phi[:, p], S, eps, r, sigma), atol=1e-12)
 
 
-def test_monitor_loss_matches_manual():
+def test_validation_loss_matches_manual():
     g = torch.Generator().manual_seed(4)
     Ptr, Pm = torch.randn(12, 4, generator=g, dtype=DT), torch.randn(5, 4, generator=g, dtype=DT)
     Str, Sm = torch.rand(12, 2, generator=g, dtype=DT), torch.rand(5, 2, generator=g, dtype=DT)
     sigma = Str.std(0)
     r = RidgeReadout(0.1)
-    got = monitor_loss(Ptr, Str, Pm, Sm, r, sigma)
+    got = validation_loss(Ptr, Str, Pm, Sm, r, sigma)
     mu_f, mu_s = Ptr.mean(0), Str.mean(0)
     W = r.fit(Ptr - mu_f, (Str - mu_s) / sigma).W
     want = ((((Pm - mu_f) @ W) - (Sm - mu_s) / sigma) ** 2).mean()
